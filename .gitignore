@@ -1,6 +1,8 @@
-# 빌드 결과물 (Releases 에 올림)
+# 빌드 결과물 (받을 파일은 release/ 폴더에만 둠)
 *.exe
 *.apk
+!release/SSH-Lite.exe
+!release/SSH-Lite.apk
 *.idsig
 *.zip
 dist/
