@@ -1,6 +1,16 @@
 # SSH Lite
 
-한 창 안에 **왼쪽은 서버 폴더 트리**, **오른쪽은 터미널 탭**(서버 + 내 PC의 cmd/PowerShell)이 있는 가벼운 접속 도구예요.
+한 창 안에 **왼쪽은 서버 파일 트리**, **오른쪽은 터미널 탭**이 있는 가벼운 SSH · SFTP 접속 도구예요. Windows와 안드로이드(갤럭시 등)에서 돼요.
+
+![SSH Lite Windows 화면](docs/screenshot-pc.png)
+
+- **비밀번호는 처음 한 번만**: 처음 접속할 때 SSH 키를 만들어 서버에 등록해요. 다음부터는 바로 연결돼요.
+- **파일 주고받기**: 탐색기에서 트리로 끌어다 놓으면 업로드돼요. 서버 파일을 더블클릭하면 내 PC 프로그램으로 열리고, 저장하면 자동으로 다시 올라가요.
+- **터미널 탭**: 서버 터미널을 여러 개 열 수 있어요. Windows에서는 내 PC 명령 프롬프트와 PowerShell 탭도 돼요. 탭 이름에 지금 폴더와 실행 중인 명령이 보여요.
+- **맨 아래 상태 줄**: 서버 CPU·메모리·디스크·네트워크를 보여줘요 (맥·리눅스 서버). 연결이 끊기면 자동으로 다시 연결해요.
+- **폰 앱**: 화면을 밀면 파일 서랍이 나와요. 특수 키 줄이 있고, 길게 눌러 붙여넣기와 구간 선택 복사를 할 수 있어요.
+
+<p align="center"><img src="docs/screenshot-phone.png" alt="SSH Lite 안드로이드 화면: 터미널과 파일 서랍" width="560"></p>
 
 ## 실행
 
@@ -102,7 +112,7 @@
 - 뒤로 가기를 눌러도 앱은 뒤로 숨기만 하고 연결은 유지해요. 폰이 앱을 정리해서 연결이 끊겼으면 돌아왔을 때 자동으로 다시 연결해요.
 
 다시 만들려면 `android/build.sh`를 실행하세요 (Ubuntu 기준 필요한 도구는 파일 맨 위에 적어 뒀어요).
-SSH는 JSch(BSD 라이선스), Ed25519·Curve25519 암호는 Bouncy Castle(MIT 라이선스)에서 필요한 부분만 넣었어요 (`android/libs/`).
+SSH는 JSch, Ed25519·Curve25519 암호는 Bouncy Castle에서 필요한 부분만 넣었어요 (`android/libs/`, 라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 ## 코드를 고쳐서 다시 만들 때 (선택)
 
@@ -116,4 +126,9 @@ exe 없이 바로 실행하려면 `pip install -r requirements.txt` 후 `ssh_lit
 - 서버에서 내 PC 탐색기로 **끌어내는 것**은 안 돼요 (WebView2가 지원하지 않아요). 더블클릭이나 우클릭 다운로드를 쓰세요.
 - 비밀번호는 어디에도 저장하지 않아요. SSH 키는 `C:\Users\<사용자>\.ssh\id_ed25519`에 만들어지고, 서버에는 공개키만 등록돼요.
 - 설정은 `C:\Users\<사용자>\.ssh_lite.json`에 저장돼요.
-- 터미널 화면 엔진은 xterm.js(MIT 라이선스, `ui/LICENSE-xterm.txt`)예요. 글꼴은 Pretendard와 JetBrains Mono(둘 다 SIL 오픈 폰트 라이선스, `ui/fonts/`)를 함께 넣었어요.
+- 터미널 화면 엔진은 xterm.js예요. 글꼴은 Pretendard와 JetBrains Mono를 함께 넣었어요.
+
+## 라이선스
+
+[MIT](LICENSE). 누구나 자유롭게 쓰고, 고치고, 다시 배포할 수 있어요. 저작권 표시만 남겨 주세요.
+함께 들어 있는 외부 코드(xterm.js, JSch, Bouncy Castle, 글꼴, Windows exe 안의 Python 라이브러리)의 라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 정리해 뒀어요.

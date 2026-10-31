@@ -13,6 +13,7 @@ mkdir -p "$OUT/assets/ui" "$OUT/classes" "$OUT/jsch" "$OUT/all" "$OUT/dexin"
 # 1. 화면: PC 앱과 같은 ui 폴더 + 서버 명령·셸 설정 (ssh_lite.pyw 에서 꺼냄)
 cp -r ../ui/. "$OUT/assets/ui/"
 python3 gen_shared.py "$OUT/assets/shared.json"
+mkdir -p "$OUT/assets/licenses" && cp ../LICENSE ../licenses/JSch.txt ../licenses/BouncyCastle.txt "$OUT/assets/licenses/"  # 앱 안에도 라이선스 글
 
 # 2. SSH 라이브러리: JSch 에서 Java 9+ 전용 부분(META-INF/versions)은 빼야 폰에서 돌아감
 (cd "$OUT/jsch" && unzip -q ../../libs/jsch-*.jar -x 'META-INF/*')
