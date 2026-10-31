@@ -390,15 +390,15 @@
   .mobile .toast button, .mobile .toast a { pointer-events: auto; }
   /* 키 줄: 폰 키보드에 없는 키. 눌러도 키보드가 닫히지 않게 포커스를 가져가지 않음 */
   .mobile .keyrow {
-    display: flex; flex: none; gap: 5px; padding: 6px 6px; overflow-x: auto; scrollbar-width: none;
+    display: flex; flex: none; gap: 4px; padding: 6px 6px; overflow-x: auto; scrollbar-width: none;
     background: var(--panel); border-top: 1px solid var(--line);
   }
   .mobile .keyrow::-webkit-scrollbar { display: none; }
   .keyrow button {
-    flex: none; min-width: 42px; height: 38px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line-2);
+    flex: none; min-width: 38px; height: 38px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line-2);
     background: var(--panel-2); color: var(--text-2); font: 600 13px var(--ui); touch-action: manipulation;
   }
-  .keyrow button.wide { min-width: 58px; }
+  .keyrow button.wide { min-width: 50px; }
   .keyrow button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
   .keyrow button:active, .keyrow button.press { background: var(--raised); color: var(--text); }
   .keyrow .gap { flex: none; width: 4px; }
