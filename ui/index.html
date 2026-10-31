@@ -418,6 +418,10 @@
   .movebar .btn { height: 38px; padding: 0 16px; }
   .movebar .btn.primary:disabled { opacity: .45; }
   .row.moving { opacity: .45; }
+  .row .pick { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--dim); display: grid; place-items: center; color: transparent; }
+  .row.sel .pick { background: var(--accent-btn); border-color: var(--accent-btn); color: #fff; }
+  .movebar .btn:disabled { opacity: .45; }
+  #btnPickDelete { color: var(--danger); }
   .selbar { display: none; }
   .mobile .selbar:not([hidden]) {
     display: flex; flex: none; align-items: center; gap: 8px; height: 51px; padding: 0 8px 0 12px;
@@ -468,6 +472,15 @@
           <button class="icon-btn" id="btnFilterClose" title="지우기 (Esc)" aria-label="거르기 지우기" data-icon="x" hidden></button>
         </div>
         <div class="tree" id="tree" tabindex="0" aria-label="서버 파일"></div>
+        <div class="movebar" id="pickBar" hidden>
+          <span class="mv-hint" id="pickHint"></span>
+          <div class="mv-actions">
+            <button class="btn" id="btnPickCancel">취소</button>
+            <button class="btn" id="btnPickDelete">삭제</button>
+            <button class="btn" id="btnPickDownload">받기</button>
+            <button class="btn primary" id="btnPickMove">옮기기</button>
+          </div>
+        </div>
         <div class="movebar" id="moveBar" hidden>
           <span class="mv-hint" id="moveHint"></span>
           <div class="mv-actions">
@@ -571,7 +584,8 @@
   addEventListener("DOMContentLoaded", () => setTimeout(() => dispatchEvent(new Event("pywebviewready")), 0));
 })();
 const MOBILE = document.documentElement.classList.contains("mobile");
-const mover = { paths: null, dest: null };  // '다른 폴더로 옮기기' 하는 중이면 옮길 경로들과 고른 폴더
+const mover = { paths: null, dest: null };
+let picking = false;  // 폰: '여러 개 선택' 중 (누르면 체크가 켜지고 꺼짐)  // '다른 폴더로 옮기기' 하는 중이면 옮길 경로들과 고른 폴더
 "use strict";
 
 /* ================================================================ 아이콘 */
@@ -748,7 +762,12 @@ function toast(message, { error = false, action = null, timeout = 4500 } = {}) {
   el.className = "toast" + (error ? " err" : "");
   el.innerHTML = `<span class="ic">${icon(error ? "alert" : "check", 17)}</span><span class="msg">${esc(message)}</span>
                   ${action ? `<button class="act">${esc(action.label)}</button>` : ""}`;
-  if (action) el.querySelector(".act").onclick = () => { action.run(); el.remove(); };
+  if (action) el.querySelector(".act").onclick = () => {
+    if (el.dataset.done) return;  // 두 번 눌려도 한 번만 (되돌리기를 두 번 하면 오류)
+    el.dataset.done = "1";
+    el.remove();
+    action.run();
+  };
   $("#toasts").appendChild(el);
   setTimeout(() => el.remove(), error ? timeout + 3000 : timeout);
 }
@@ -1723,7 +1742,7 @@ function render() {
                         : `<span style="color:${fileColor(e.name)}">${icon("file", 16)}</span>`;
       out.push(`<div class="${cls}" style="--d:${depth}" data-path="${esc(e.path)}" draggable="${MOBILE ? "false" : "true"}"
                  title="${esc(e.name)}${e.dir ? "" : " · " + fmtSize(e.size)}${e.mtime ? " · " + fmtDate(e.mtime) : ""}">
-          <span class="chev">${e.dir ? icon("chev", 14) : ""}</span>${ico}
+          ${picking ? `<span class="pick">${icon("check", 12)}</span>` : ""}<span class="chev">${e.dir ? icon("chev", 14) : ""}</span>${ico}
           <span class="name">${nameHtml(e.name)}</span>${e.link ? '<span class="link">링크</span>' : ""}
           <span class="meta">${e.dir ? "" : fmtSize(e.size)}</span></div>`);
       if (open) {
@@ -1739,6 +1758,7 @@ function render() {
     : `<div class="empty">빈 폴더예요<br>윈도우 탐색기에서 파일을 끌어다 놓으면 여기로 올라가요</div>`;
   tree.classList.toggle("drop-root", state.dropDir === state.root);
   paintMoveBar();
+  paintPickBar();
 }
 
 function renderCrumbs() {
@@ -1867,19 +1887,20 @@ async function renameEntry(e) {
   await loadDir(parentOf(e.path));
 }
 
-async function deleteEntries(entries) {
-  if (!entries.length) return;
+async function deleteEntries(entries) {  // 지웠으면 true, 취소했으면 false
+  if (!entries.length) return false;
   const ok = await modal({
     title: entries.length === 1 ? `'${entries[0].name}'을(를) 삭제할까요?` : `${entries.length}개 항목을 삭제할까요?`,
     body: `<p>서버에서 바로 지워지고 되돌릴 수 없어요. 폴더는 안의 내용까지 지워져요.</p>${listHtml(entries.map(e => e.name + (e.dir ? "/" : "")))}`,
     ok: "삭제", danger: true,
   });
-  if (!ok) return;
+  if (!ok) return false;
   const r = await api().delete(entries.map(e => ({ path: e.path, dir: e.dir, link: e.link })));
   if (r.error) toast(r.error, { error: true });
   const parents = new Set(entries.map(e => parentOf(e.path)));
   entries.forEach(e => state.selected.delete(e.path));
   for (const p of parents) await loadDir(p);
+  return true;
 }
 
 const movable = (paths, targetDir) => paths.filter(p => parentOf(p) !== targetDir && targetDir !== p && !targetDir.startsWith(p + "/"));
@@ -1905,6 +1926,31 @@ async function moveEntries(paths, targetDir, undoable = true) {
 }
 
 /* 다른 폴더로 옮기기 (폰은 끌기 대신 이것만): 폴더를 누르면 그 폴더가 고른 곳이 되고, 막대의 '여기로 옮기기'로 확정 */
+/* 폰: 여러 개 선택. 누를 때마다 체크가 켜지고 꺼지고, 아래 막대에서 옮기기·받기·삭제 */
+function startPick(entry) {
+  picking = true;
+  state.selected = new Set(entry ? [entry.path] : []);
+  $("#pickBar").hidden = false;
+  render();
+}
+function endPick(keep = false) {
+  if (!picking) return;
+  picking = false;
+  if (!keep) state.selected.clear();
+  $("#pickBar").hidden = true;
+  render();
+}
+function paintPickBar() {
+  if (!picking) return;
+  const n = selectedEntries().length;
+  $("#pickHint").innerHTML = n ? `<b>${n}개</b> 선택했어요 · 더 누르면 추가, 다시 누르면 빠져요` : "고를 항목을 누르세요";
+  for (const id of ["#btnPickMove", "#btnPickDownload", "#btnPickDelete"]) $(id).disabled = !n;
+}
+$("#btnPickCancel").onclick = () => endPick();
+$("#btnPickMove").onclick = () => { const sel = selectedEntries(); endPick(true); startMove(sel); };
+$("#btnPickDownload").onclick = () => { const sel = selectedEntries(); endPick(); download(sel); };
+$("#btnPickDelete").onclick = async () => { if (await deleteEntries(selectedEntries())) endPick(); };  // 취소하면 선택은 그대로
+
 function startMove(entries) {
   mover.paths = entries.map(e => e.path);
   mover.dest = null;
@@ -1958,6 +2004,7 @@ function openContextMenu(x, y, entry) {
     items.push({ icon: "folderPlus", label: "새 폴더", run: () => newFolder() });
     if (sel.length === 1) items.push({ icon: "edit", label: "이름 바꾸기", kbd: "F2", run: () => renameEntry(entry) });
     items.push({ icon: "move", label: sel.length > 1 ? `${sel.length}개 다른 폴더로 옮기기…` : "다른 폴더로 옮기기…", run: () => startMove(sel) });
+    if (MOBILE && !picking) items.push({ icon: "check", label: "여러 개 선택", run: () => startPick(entry) });
     items.push({ icon: "copy", label: "경로 복사", run: () => copyText(sel.map(e => e.path).join("\n")) });
     items.push("-");
     items.push({ icon: "trash", label: "삭제", kbd: "Del", danger: true, run: () => deleteEntries(sel) });
@@ -1983,6 +2030,13 @@ tree.addEventListener("click", e => {
   }
   const entry = state.index.get(path);
   if (e.target.closest(".chev") && entry.dir) return toggleDir(path);
+  if (picking) {
+    state.selected.has(path) ? state.selected.delete(path) : state.selected.add(path);
+    state.anchor = path;
+    paintSelection();
+    paintPickBar();
+    return;
+  }
   if (mover.paths) {  // 옮기는 중: 폴더를 누르면 그 폴더가 옮길 곳 (파일을 누르면 그 파일이 있는 폴더)
     mover.dest = entry.dir ? path : parentOf(path);
     if (entry.dir && MOBILE && !e.target.closest(".chev")) toggleDir(path);
@@ -2015,8 +2069,9 @@ tree.addEventListener("dblclick", e => {
 tree.addEventListener("contextmenu", e => {
   e.preventDefault();
   const path = rowPath(e.target);
-  if (path && !state.selected.has(path)) selectOnly(path);
-  if (!path) { state.selected.clear(); paintSelection(); }
+  if (picking && path) { state.selected.add(path); paintSelection(); paintPickBar(); }
+  else if (path && !state.selected.has(path)) selectOnly(path);
+  if (!path && !picking) { state.selected.clear(); paintSelection(); }
   openContextMenu(e.clientX, e.clientY, path ? state.index.get(path) : null);
 });
 tree.addEventListener("keydown", e => {
@@ -2630,6 +2685,7 @@ window.__onBack = () => {
   if (!$("#menu").hidden) { hideMenu(); return true; }
   if (sel.tab) { endSelect(); return true; }
   if (mover.paths) { endMove(); return true; }
+  if (picking) { endPick(); return true; }
   if (!$("#searchBar").hidden) { $("#btnSearchClose").click(); return true; }
   if (drawerOpen()) { closeDrawer(); return true; }
   return false;
