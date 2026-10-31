@@ -503,6 +503,7 @@
       <div class="keyrow" id="keyRow" aria-label="특수 키">
         <button data-k="esc">Esc</button><button data-k="tab">Tab</button><button data-k="ctrl" class="wide">Ctrl</button>
         <button data-k="left">←</button><button data-k="down">↓</button><button data-k="up">↑</button><button data-k="right">→</button>
+        <button data-k="enter" class="wide">Enter</button>
         <span class="gap"></span>
         <button data-k="alt">Alt</button><button data-k="home">Home</button><button data-k="end">End</button>
         <button data-k="pgup">PgUp</button><button data-k="pgdn">PgDn</button>
@@ -2625,6 +2626,7 @@ function keySeq(tab, k) {
   switch (k) {
     case "esc": return "\x1b";
     case "tab": return "\t";
+    case "enter": return "\r";
     case "up": return arrow("A");
     case "down": return arrow("B");
     case "right": return mods.ctrl && atPrompt ? "\x1bf" : arrow("C");
