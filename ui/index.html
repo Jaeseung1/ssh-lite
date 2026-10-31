@@ -149,6 +149,9 @@
   .row.drop { background: rgba(110, 155, 255, .08); box-shadow: inset 0 0 0 1px var(--accent); }
   .row.drop .meta { display: none; }
   .row.drop::after { content: "여기에 놓기"; color: var(--accent); font-size: 11px; font-weight: 600; }
+  .row.dest { background: rgba(110, 155, 255, .10); box-shadow: inset 0 0 0 1px var(--accent); }
+  .row.dest .meta { display: none; }
+  .row.dest::after { content: "옮길 곳"; color: var(--accent); font-size: 11px; font-weight: 600; }
   .row .chev { width: 14px; height: 14px; display: grid; place-items: center; color: var(--faint); transition: transform .12s; }
   .row.open .chev { transform: rotate(90deg); }
   .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -382,6 +385,7 @@
   .mobile .menu button { min-height: 42px; }
   .mobile .dialog { width: calc(100vw - 24px); max-width: 440px; }
   .mobile .toasts { left: 12px; right: 12px; bottom: 96px; align-items: stretch; pointer-events: none; }
+  .mobile.drawer-open .toasts { top: 12px; bottom: auto; }  /* 서랍이 열려 있으면 아래 막대(옮기기 등)를 가리지 않게 위로 */
   .mobile .toast { max-width: none; pointer-events: none; }  /* 알림이 터미널 아래쪽을 가려도 손가락은 터미널로 */
   .mobile .toast button, .mobile .toast a { pointer-events: auto; }
   /* 키 줄: 폰 키보드에 없는 키. 눌러도 키보드가 닫히지 않게 포커스를 가져가지 않음 */
@@ -403,6 +407,17 @@
   .mobile .term-stack { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .mobile .term-stack .xterm-helper-textarea, .mobile .term-stack .composition-view { pointer-events: none !important; }
   /* 구간 선택: 키 줄 자리에 안내와 복사/취소 */
+  /* 다른 폴더로 옮기기: 트리 아래 막대. 옮길 항목은 흐리게, 고른 폴더는 파란 테두리 */
+  .movebar:not([hidden]) {
+    flex: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px 12px;
+    background: var(--panel-2); border-top: 1px solid var(--accent-line);
+  }
+  .movebar .mv-hint { color: var(--text-2); font-size: 13px; line-height: 1.4; word-break: break-all; }
+  .movebar .mv-hint b { color: var(--text); font-weight: 600; }
+  .movebar .mv-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .movebar .btn { height: 38px; padding: 0 16px; }
+  .movebar .btn.primary:disabled { opacity: .45; }
+  .row.moving { opacity: .45; }
   .selbar { display: none; }
   .mobile .selbar:not([hidden]) {
     display: flex; flex: none; align-items: center; gap: 8px; height: 51px; padding: 0 8px 0 12px;
@@ -453,6 +468,13 @@
           <button class="icon-btn" id="btnFilterClose" title="지우기 (Esc)" aria-label="거르기 지우기" data-icon="x" hidden></button>
         </div>
         <div class="tree" id="tree" tabindex="0" aria-label="서버 파일"></div>
+        <div class="movebar" id="moveBar" hidden>
+          <span class="mv-hint" id="moveHint"></span>
+          <div class="mv-actions">
+            <button class="btn" id="btnMoveCancel">취소</button>
+            <button class="btn primary" id="btnMoveHere">여기로 옮기기</button>
+          </div>
+        </div>
         <div class="drop-hint" id="dropHint" hidden><span data-icon="upload"></span><span>여기에 업로드</span><b id="dropHintPath"></b></div>
       </div>
       <div class="splitter" id="splitter"></div>
@@ -549,6 +571,7 @@
   addEventListener("DOMContentLoaded", () => setTimeout(() => dispatchEvent(new Event("pywebviewready")), 0));
 })();
 const MOBILE = document.documentElement.classList.contains("mobile");
+const mover = { paths: null, dest: null };  // '다른 폴더로 옮기기' 하는 중이면 옮길 경로들과 고른 폴더
 "use strict";
 
 /* ================================================================ 아이콘 */
@@ -571,6 +594,7 @@ const ICONS = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
   open: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v1"/><path d="M3 17.5V9.5M3 17.5A2.5 2.5 0 0 0 5.5 20h12l3.5-8H7.5z"/>',
+  move: '<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M10 13.5h6M13.5 11l2.5 2.5-2.5 2.5"/>',
   menu: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
   more: '<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>',
   power: '<path d="M12 3v8M6.3 6.6a8 8 0 1 0 11.4 0"/>',
@@ -1693,10 +1717,11 @@ function render() {
       const child = e.dir ? state.nodes.get(e.path) : null;
       const open = !!(child && child.open);
       const cls = ["row", e.dir ? "dir" : "", open ? "open" : "", state.selected.has(e.path) ? "sel" : "",
-                   state.dropDir === e.path ? "drop" : ""].join(" ");
+                   state.dropDir === e.path ? "drop" : "", mover.paths && mover.dest === e.path ? "dest" : "",
+                   mover.paths && mover.paths.includes(e.path) ? "moving" : ""].join(" ");
       const ico = e.dir ? `<span style="color:var(--folder)">${icon("folder", 16)}</span>`
                         : `<span style="color:${fileColor(e.name)}">${icon("file", 16)}</span>`;
-      out.push(`<div class="${cls}" style="--d:${depth}" data-path="${esc(e.path)}" draggable="true"
+      out.push(`<div class="${cls}" style="--d:${depth}" data-path="${esc(e.path)}" draggable="${MOBILE ? "false" : "true"}"
                  title="${esc(e.name)}${e.dir ? "" : " · " + fmtSize(e.size)}${e.mtime ? " · " + fmtDate(e.mtime) : ""}">
           <span class="chev">${e.dir ? icon("chev", 14) : ""}</span>${ico}
           <span class="name">${nameHtml(e.name)}</span>${e.link ? '<span class="link">링크</span>' : ""}
@@ -1713,6 +1738,7 @@ function render() {
     ? `<div class="empty">'${esc(state.filter)}'이(가) 들어간 항목이 없어요</div>`
     : `<div class="empty">빈 폴더예요<br>윈도우 탐색기에서 파일을 끌어다 놓으면 여기로 올라가요</div>`;
   tree.classList.toggle("drop-root", state.dropDir === state.root);
+  paintMoveBar();
 }
 
 function renderCrumbs() {
@@ -1856,13 +1882,59 @@ async function deleteEntries(entries) {
   for (const p of parents) await loadDir(p);
 }
 
-async function moveEntries(paths, targetDir) {
-  paths = paths.filter(p => parentOf(p) !== targetDir && targetDir !== p && !targetDir.startsWith(p + "/"));
+const movable = (paths, targetDir) => paths.filter(p => parentOf(p) !== targetDir && targetDir !== p && !targetDir.startsWith(p + "/"));
+async function moveEntries(paths, targetDir, undoable = true) {
+  paths = movable(paths, targetDir);
   if (!paths.length) return;
   const r = await api().move(paths, targetDir);
-  if (r.error) toast(r.error, { error: true });
   for (const p of new Set([...paths.map(parentOf), targetDir])) if (state.nodes.get(p)?.entries) await loadDir(p);
+  if (r.error) return toast(r.error, { error: true });
+  if (!undoable) return;
+  // 잘못 옮겼을 때 바로 되돌릴 수 있게 (원래 있던 폴더별로 다시 옮김)
+  const back = new Map();
+  for (const p of paths) {
+    const from = parentOf(p);
+    if (!back.has(from)) back.set(from, []);
+    back.get(from).push(joinPath(targetDir, baseName(p)));
+  }
+  const what = paths.length === 1 ? `'${baseName(paths[0])}'을(를)` : `${paths.length}개를`;
+  toast(`${what} '${baseName(targetDir)}' 폴더로 옮겼어요.`, { timeout: 8000, action: { label: "되돌리기", run: async () => {
+    for (const [from, now] of back) await moveEntries(now, from, false);
+    toast("되돌렸어요.");
+  } } });
 }
+
+/* 다른 폴더로 옮기기 (폰은 끌기 대신 이것만): 폴더를 누르면 그 폴더가 고른 곳이 되고, 막대의 '여기로 옮기기'로 확정 */
+function startMove(entries) {
+  mover.paths = entries.map(e => e.path);
+  mover.dest = null;
+  $("#moveBar").hidden = false;
+  render();
+}
+function endMove() {
+  if (!mover.paths) return;
+  mover.paths = mover.dest = null;
+  $("#moveBar").hidden = true;
+  render();
+}
+function paintMoveBar() {
+  if (!mover.paths) return;
+  const dest = mover.dest, n = mover.paths.length;
+  const ok = !!dest && movable(mover.paths, dest).length > 0;
+  const what = n === 1 ? `'${esc(baseName(mover.paths[0]))}'` : `<b>${n}개</b>`;
+  $("#moveHint").innerHTML = !dest
+    ? `${what}을(를) 옮길 폴더를 누르세요 (맨 위 폴더로 옮기려면 목록 빈 곳을 누르세요)`
+    : `${what} → <b>${esc(dest)}</b>${ok ? "" : " (지금 있는 곳이에요)"}`;
+  $("#btnMoveHere").disabled = !ok;
+}
+$("#btnMoveCancel").onclick = endMove;
+addEventListener("keydown", e => { if (e.key === "Escape" && mover.paths && $("#modal").hidden && $("#menu").hidden) endMove(); });
+$("#btnMoveHere").onclick = async () => {
+  const paths = mover.paths, dest = mover.dest;
+  if (!dest) return;
+  endMove();
+  await moveEntries(paths, dest);
+};
 
 function openContextMenu(x, y, entry) {
   const sel = selectedEntries();
@@ -1885,6 +1957,7 @@ function openContextMenu(x, y, entry) {
     items.push({ icon: "upload", label: "여기에 업로드…", run: () => pickAndUpload() });
     items.push({ icon: "folderPlus", label: "새 폴더", run: () => newFolder() });
     if (sel.length === 1) items.push({ icon: "edit", label: "이름 바꾸기", kbd: "F2", run: () => renameEntry(entry) });
+    items.push({ icon: "move", label: sel.length > 1 ? `${sel.length}개 다른 폴더로 옮기기…` : "다른 폴더로 옮기기…", run: () => startMove(sel) });
     items.push({ icon: "copy", label: "경로 복사", run: () => copyText(sel.map(e => e.path).join("\n")) });
     items.push("-");
     items.push({ icon: "trash", label: "삭제", kbd: "Del", danger: true, run: () => deleteEntries(sel) });
@@ -1903,9 +1976,19 @@ const rowPath = el => el?.closest(".row[data-path]")?.dataset.path;
 
 tree.addEventListener("click", e => {
   const path = rowPath(e.target);
-  if (!path) { if (e.target === tree) { state.selected.clear(); paintSelection(); } return; }
+  if (!path) {
+    if (e.target === tree && mover.paths) { mover.dest = state.root; render(); return; }
+    if (e.target === tree) { state.selected.clear(); paintSelection(); }
+    return;
+  }
   const entry = state.index.get(path);
   if (e.target.closest(".chev") && entry.dir) return toggleDir(path);
+  if (mover.paths) {  // 옮기는 중: 폴더를 누르면 그 폴더가 옮길 곳 (파일을 누르면 그 파일이 있는 폴더)
+    mover.dest = entry.dir ? path : parentOf(path);
+    if (entry.dir && MOBILE && !e.target.closest(".chev")) toggleDir(path);
+    render();
+    return;
+  }
   if (MOBILE) {
     const again = state.selected.size === 1 && state.selected.has(path);
     selectOnly(path);
@@ -2036,6 +2119,7 @@ let dragInternal = null, lastDropDir = null;
 const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes("Files");
 
 tree.addEventListener("dragstart", e => {
+  if (MOBILE || mover.paths) { e.preventDefault(); return; }
   const path = rowPath(e.target);
   if (!path) return;
   if (!state.selected.has(path)) selectOnly(path);
@@ -2545,6 +2629,7 @@ window.__onBack = () => {
   if (!$("#modal").hidden) { $("#modal").click(); return true; }  // 바깥 누르기 = 취소
   if (!$("#menu").hidden) { hideMenu(); return true; }
   if (sel.tab) { endSelect(); return true; }
+  if (mover.paths) { endMove(); return true; }
   if (!$("#searchBar").hidden) { $("#btnSearchClose").click(); return true; }
   if (drawerOpen()) { closeDrawer(); return true; }
   return false;
