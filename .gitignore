@@ -1,0 +1,13 @@
+# 빌드 결과물 (Releases 에 올림)
+*.exe
+*.apk
+*.idsig
+*.zip
+dist/
+build/
+android/build/
+__pycache__/
+*.spec
+
+# 앱 서명 키: 공개 저장소에 올리면 누구나 가짜 업데이트를 만들 수 있음. 직접 보관하세요
+android/release.keystore

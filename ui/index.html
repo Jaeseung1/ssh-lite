@@ -1,0 +1,2566 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SSH Lite</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="xterm.css">
+<style>
+  /* 어두운 남색 바탕 + 파란 강조 하나. 서버는 파랑, 내 PC는 초록 */
+  @font-face { font-family: "Pretendard"; src: url("fonts/PretendardVariable.woff2") format("woff2"); font-weight: 45 920; font-display: swap; }
+  @font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono-Variable.woff2") format("woff2"); font-weight: 100 800; font-display: block; }
+  :root {
+    --bg: #0E1014;          /* 터미널 */
+    --panel: #14171D;       /* 옆 패널, 탭 줄, 상태 줄 */
+    --panel-2: #1A1E26;     /* 카드, 대화상자, 메뉴 */
+    --raised: #1F242D;
+    --hover: #1E232C;
+    --select: rgba(110, 155, 255, .14);
+    --line: #232832;
+    --line-2: #2E3440;
+    --text: #E4E8EF;
+    --text-2: #D3D9E3;
+    --muted: #8B94A5;
+    --faint: #6B7485;
+    --dim: #4A5262;
+    --accent: #6E9BFF;
+    --accent-btn: #4F7FF0;
+    --accent-btn-hover: #5C8BFA;
+    --on-accent: #FFFFFF;
+    --accent-soft: rgba(110, 155, 255, .14);
+    --accent-line: rgba(110, 155, 255, .55);
+    --ok: #3FD08F;
+    --danger: #FF6B6B;
+    --danger-strong: #E5484D;
+    --folder: #E9B44C;
+    --side-w: 296px;
+    --ui: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "D2Coding", "Malgun Gothic", monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  /* 스크롤바: Windows 기본 회색 막대·화살표 대신 얇고 어두운 막대 (트리, 터미널, 목록 모두) */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-thumb { background: #2A303B; border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: #3A4250; }  /* 창 전체가 스크롤되면 오른쪽에 빈 스크롤바 칸이 생김 */
+  body {
+    background: var(--panel); color: var(--text); font: 13px/1.45 var(--ui);
+    overflow: hidden; user-select: none; -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss06";
+  }
+  button { font: inherit; color: inherit; }
+  svg { display: block; flex: none; }
+  [hidden] { display: none !important; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @keyframes fade { from { opacity: 0; } }
+  @keyframes pop { from { opacity: 0; transform: translateY(4px); } }
+
+  /* ---------- 공통: 버튼 / 입력칸 ---------- */
+  .btn {
+    height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-2);
+    background: transparent; color: var(--text-2); font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: background .12s, border-color .12s;
+  }
+  .btn:hover { background: var(--hover); border-color: #3A4150; color: var(--text); }
+  .btn.primary { background: var(--accent-btn); border-color: var(--accent-btn); color: var(--on-accent); font-weight: 650; }
+  .btn.primary:hover { background: var(--accent-btn-hover); border-color: var(--accent-btn-hover); }
+  .btn.danger { background: var(--danger-strong); border-color: var(--danger-strong); color: #fff; }
+  .btn.danger:hover { background: #F05A5F; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .btn:focus-visible, .icon-btn:focus-visible, .crumb:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 0; background: transparent; color: var(--muted);
+    display: grid; place-items: center; cursor: pointer; transition: background .12s, color .12s;
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--text); }
+  .icon-btn.active { color: var(--accent); }
+  .field {
+    width: 100%; height: 36px; padding: 0 11px; border-radius: 7px; border: 1px solid var(--line-2);
+    background: var(--bg); color: var(--text); font: 13px var(--ui); outline: none;
+    transition: border-color .12s, box-shadow .12s; user-select: text;
+  }
+  .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(110, 155, 255, .16); }
+  .field.mono { font-family: var(--mono); font-size: 12.5px; }
+  .label { display: block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  .spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #2E3440; border-top-color: var(--accent); animation: rot .8s linear infinite; flex: none; }
+  .btn.primary .spin { border-color: rgba(255, 255, 255, .35); border-top-color: var(--on-accent); }
+
+  /* ---------- 큰 틀 ---------- */
+  .workspace { height: calc(100% - 28px); display: grid; grid-template-columns: min(var(--side-w), 45vw) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr); }  /* 파일이 많아도 트리 안에서만 스크롤 (아래 상태 줄을 덮지 않게) */  /* 창을 작게 줄이면 옆 패널도 같이 줄어듦 */
+  .sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--panel); border-right: 1px solid var(--line); }
+  .side-top {
+    height: 40px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mark { flex: none; width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(140deg, #7EA6FF, #4F7FF0); color: #fff; display: grid; place-items: center; box-shadow: 0 2px 10px rgba(79, 127, 240, .35); }
+  .brand { flex: none; white-space: nowrap; font-weight: 650; letter-spacing: -.01em; }
+  /* 옆 패널을 좁히면 로고·이름은 그대로, 접속 정보만 줄어듦 (말줄임) */
+  .pill {
+    margin-left: auto; min-width: 0; flex: 0 1 auto; height: 26px; display: flex; align-items: center; gap: 7px; padding: 0 10px;
+    border-radius: 13px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-size: 12px;
+  }
+  .pill #pillText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--dim); flex: none; }
+  .pill.on { color: var(--text-2); }
+  .pill.on .dot { background: var(--ok); }
+  .pill.lost .dot { background: var(--danger); }
+  .pill.busy .dot { background: transparent; border: 1.5px solid #2E3440; border-top-color: var(--accent); width: 9px; height: 9px; border-radius: 50%; animation: rot .8s linear infinite; }
+  .splitter { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 5; }
+  .splitter:hover, .splitter.drag { background: linear-gradient(90deg, transparent 3px, var(--accent-line) 3px, var(--accent-line) 5px, transparent 5px); }
+
+  /* ---------- 접속 카드 (연결 전 왼쪽) ---------- */
+  .connect-pane { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 14px; overflow: auto; }
+  .cp-card { padding: 16px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 12px; }
+  .cp-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .cp-head b { font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .cp-head span { font-size: 11.5px; color: var(--faint); }
+  .cp-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
+  .check { display: flex; align-items: center; gap: 8px; color: var(--muted); cursor: pointer; font-size: 12.5px; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .connect-pane .btn.primary { width: 100%; height: 38px; font-size: 13.5px; }
+  .login-error { margin: 0; display: flex; gap: 8px; align-items: flex-start; color: var(--danger); font-size: 12.5px; line-height: 1.5; }
+  .login-error:empty { display: none; }
+  .login-error.info { color: var(--muted); align-items: center; }
+  .login-error.info::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #2E3440; border-top-color: var(--accent); animation: rot .8s linear infinite; flex: none; }
+  .hint { padding: 0 4px; color: var(--faint); font-size: 12px; line-height: 1.6; }
+
+  /* ---------- 파일 트리 ---------- */
+  .files-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .side-head { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px 10px; }
+  .crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 1px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; font-size: 12.5px; }
+  .crumbs::-webkit-scrollbar { display: none; }
+  .crumb { border: 0; background: transparent; color: var(--faint); padding: 3px 4px; border-radius: 5px; cursor: pointer; }
+  .crumb:hover { background: var(--hover); color: var(--text); }
+  .crumb.last { color: var(--text); font-weight: 650; }
+  .crumb-sep { color: var(--dim); padding: 0 1px; }
+  .tree { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 16px; outline: none; position: relative; }
+  .row {
+    height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 8px 0 calc(6px + var(--d) * 16px);
+    border-radius: 6px; white-space: nowrap; cursor: default; color: var(--text-2);
+  }
+  .row:hover { background: var(--hover); }
+  .row.sel { background: var(--select); color: var(--text); }
+  .tree:focus .row.sel { box-shadow: inset 0 0 0 1px rgba(110, 155, 255, .3); }
+  .row.drop { background: rgba(110, 155, 255, .08); box-shadow: inset 0 0 0 1px var(--accent); }
+  .row.drop .meta { display: none; }
+  .row.drop::after { content: "여기에 놓기"; color: var(--accent); font-size: 11px; font-weight: 600; }
+  .row .chev { width: 14px; height: 14px; display: grid; place-items: center; color: var(--faint); transition: transform .12s; }
+  .row.open .chev { transform: rotate(90deg); }
+  .row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .row .meta { color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .row.note { color: var(--faint); font-size: 12px; }
+  .row .link { color: var(--faint); font-size: 11px; }
+  .empty { padding: 40px 20px; text-align: center; color: var(--faint); font-size: 12.5px; line-height: 1.7; }
+  .tree.drop-root { box-shadow: inset 0 0 0 1px var(--accent); background: rgba(110, 155, 255, .05); border-radius: 8px; }
+  .drop-hint {
+    position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 4; padding: 9px 12px; border-radius: 9px;
+    background: var(--panel-2); border: 1px solid var(--accent); color: var(--text-2); font-size: 12.5px;
+    display: flex; gap: 8px; align-items: center; pointer-events: none; box-shadow: 0 12px 30px rgba(0, 0, 0, .45);
+  }
+  .drop-hint svg { color: var(--accent); }
+  .drop-hint b { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+  /* ---------- 터미널 탭 ---------- */
+  .term-wrap { position: relative; min-width: 0; min-height: 0; background: var(--bg); display: flex; flex-direction: column; }
+  .tabbar { height: 40px; flex: none; display: flex; align-items: stretch; background: var(--panel); border-bottom: 1px solid var(--line); padding-left: 6px; }
+  .tabs { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    position: relative; flex: 0 1 auto; min-width: 84px; max-width: 240px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 14px;
+    border-right: 1px solid var(--line); color: var(--muted); cursor: pointer; touch-action: none;
+  }
+  .tab:first-child { border-left: 1px solid var(--line); }
+  .tab:hover { color: var(--text); background: #181C23; }
+  .tab.active { background: var(--bg); color: var(--text); margin-bottom: -1px; }
+  .tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+  .tab.local.active::before { background: var(--ok); }
+  .tab.dead { color: var(--dim); }
+  .tab.dead.active::before { background: var(--dim); }
+  .tab { transition: transform .18s cubic-bezier(.2, .8, .2, 1), color .12s, background .12s; }
+  .tab.lifting {
+    transition: none; z-index: 3; cursor: grabbing; background: var(--panel-2);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .45), 0 0 0 1px var(--line-2);
+  }
+  .tab.lifting.active { background: var(--bg); }
+  .tabs.sorting .tab { cursor: grabbing; }
+  .tab.entering { animation: tabIn .2s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes tabIn { from { opacity: 0; transform: translateY(6px); } }
+  @media (prefers-reduced-motion: reduce) { .tab, .tab.entering { transition: none; animation: none; } }
+  .tab-ico { color: var(--accent); display: grid; place-items: center; }
+  .tab.local .tab-ico { color: var(--ok); }
+  .tab.dead .tab-ico { color: var(--dim); }
+  .tab:not(.active) .tab-ico { opacity: .7; }
+  .tab.running .tab-ico svg { display: none; }
+  .tab.running .tab-ico::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #2E3440; border-top-color: var(--accent); animation: rot .9s linear infinite; }
+  .tab.local.running .tab-ico::before { border-top-color: var(--ok); }
+  .tab-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab.active .tab-title { font-weight: 550; }
+  .tab-unread { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); flex: none; }
+  .tab.local .tab-unread { background: var(--ok); }
+  .tab-x {
+    width: 20px; height: 20px; margin-left: auto; border: 0; border-radius: 4px; background: transparent; color: var(--faint);
+    display: grid; place-items: center; cursor: pointer; opacity: 0; flex: none;
+  }
+  .tab:hover .tab-x, .tab.active .tab-x, .tab-x:focus-visible { opacity: 1; }
+  .tab-x:hover { background: var(--line-2); color: var(--text); }
+  .tab-add { align-self: center; margin-left: 4px; width: 30px; height: 30px; flex: none; }
+  .tab-menu { align-self: center; margin: 0 8px 0 auto; width: 30px; height: 30px; flex: none; }
+  .term-stack { position: relative; flex: 1; min-height: 0; }
+  .term-pane { position: absolute; inset: 12px 8px 6px 16px; display: none; }
+  .term-pane.active { display: block; }
+  .term-empty { position: absolute; inset: 40px 0 0 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--faint); }
+  .term-empty p { margin: 0; }
+  .empty-actions { display: flex; gap: 8px; }
+  .term-banner {
+    position: absolute; left: 50%; top: 54px; transform: translateX(-50%); z-index: 6; display: flex; align-items: center; gap: 12px;
+    padding: 6px 6px 6px 14px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-2);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, .45); color: var(--text-2); white-space: nowrap; animation: pop .14s ease-out;
+  }
+  .term-banner::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #2E3440; border-top-color: var(--accent); animation: rot .8s linear infinite; }
+  .term-banner .btn { height: 30px; padding: 0 12px; font-size: 12.5px; background: var(--raised); }
+  .search-bar {
+    position: absolute; top: 52px; right: 18px; z-index: 7; display: flex; align-items: center; gap: 2px;
+    padding: 4px 4px 4px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line-2);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .45); animation: pop .12s ease-out;
+  }
+  .search-bar .sb-ico { color: var(--faint); margin-right: 6px; }
+  .search-bar input { width: 210px; height: 28px; border: 0; outline: none; background: transparent; color: var(--text); font: 13px var(--mono); user-select: text; }
+  .search-bar .sb-status { min-width: 40px; color: var(--faint); font-size: 11.5px; text-align: right; margin-right: 4px; font-variant-numeric: tabular-nums; }
+  .search-bar .sb-status.miss { color: var(--danger); }
+  .zoom-badge {
+    position: absolute; top: 52px; left: 50%; transform: translateX(-50%); z-index: 7; padding: 6px 12px;
+    border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text-2); font-size: 12px; pointer-events: none;
+  }
+
+  /* ---------- 트리 거르기 ---------- */
+  /* 항상 트리 위에 있는 거르기 칸: 평소엔 조용히, 누르면 파란 테두리 */
+  .tree-filter {
+    flex: none; margin: 0 8px 6px; height: 30px; display: flex; align-items: center; gap: 6px; padding: 0 2px 0 10px;
+    border-radius: 8px; background: var(--bg); border: 1px solid var(--line); transition: border-color .12s, box-shadow .12s;
+  }
+  .tree-filter:hover { border-color: var(--line-2); }
+  .tree-filter:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .tree-filter input::placeholder { color: var(--faint); }
+  .tree-filter > span:first-child { color: var(--faint); }
+  .tree-filter input { flex: 1; min-width: 0; height: 28px; border: 0; outline: none; background: transparent; color: var(--text); font: 13px var(--ui); user-select: text; }
+  .tree-filter .f-count { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tree-filter .icon-btn { width: 24px; height: 24px; }
+  .row mark { background: rgba(110, 155, 255, .3); color: var(--text); border-radius: 3px; padding: 0 1px; }
+
+  /* ---------- 상태 줄 ---------- */
+  .statusbar {
+    height: 28px; display: flex; align-items: center; gap: 16px; padding: 0 8px 0 14px;
+    border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden;
+  }
+  .sb-where { display: flex; align-items: center; gap: 7px; min-width: 0; flex: 0 3 auto; overflow: hidden; text-overflow: ellipsis; }
+  .sb-where .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--dim); flex: none; }
+  .sb-where.ssh .dot { background: var(--accent); }
+  .sb-where.local .dot { background: var(--ok); }
+  .sb-where.lost .dot { background: var(--danger); }
+  /* 자리가 모자라면 접속 정보 -> 파일 이름 순으로 줄어듦 (진행 막대와 취소 버튼은 항상 보이게) */
+  .transfer { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+  .transfer > * { flex: none; }
+  .transfer .t-name { flex: 0 1 auto; min-width: 40px; white-space: nowrap; }
+  .transfer .t-kind { color: var(--accent); font-weight: 600; }
+  .transfer .t-name { color: var(--text-2); max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .transfer .bar { width: 120px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; flex: none; }
+  .transfer .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .transfer .t-num { font-variant-numeric: tabular-nums; }
+  .transfer .icon-btn { width: 20px; height: 20px; border-radius: 4px; }
+  .transfer .t-speed { color: var(--text-2); }
+  /* 서버 사용량: 오른쪽, 얇은 구분선으로 나눈 한 줄 */
+  .sb-stats { display: flex; align-items: center; color: var(--text-2); font-variant-numeric: tabular-nums; flex: none; }
+  .sb-stats .stat { position: relative; display: flex; align-items: center; gap: 5px; padding: 0 11px; }
+  .sb-stats::after { content: ""; width: 1px; height: 12px; margin-right: 4px; background: var(--line-2); }
+  .sb-stats .stat + .stat::before {
+    content: ""; position: absolute; left: 0; top: 50%; width: 1px; height: 12px; margin-top: -6px; background: var(--line-2);
+  }
+  .sb-stats .k { color: var(--faint); }
+  .sb-stats .v { color: var(--text-2); font-weight: 600; }
+  .sb-stats .net-up { color: var(--ok); }
+  .sb-stats .net-down { color: var(--accent); }
+  .sb-stats .meter { width: 20px; height: 3px; margin-left: 2px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+  .sb-stats .meter > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+  .sb-stats .stat.warm .v { color: var(--folder); }
+  .sb-stats .stat.warm .meter > i { background: var(--folder); }
+  .sb-stats .stat.hot .v { color: var(--danger); }
+  .sb-stats .stat.hot .meter > i { background: var(--danger); }
+  .sb-stats .stat-err { border: 0; background: transparent; color: var(--danger); padding: 2px 8px; margin-right: 6px; border-radius: 4px; cursor: pointer; font: inherit; }
+  .sb-stats .stat-err:hover { background: rgba(255, 107, 107, .12); }
+  /* 창이 좁거나 전송 중이면 덜 중요한 것(네트워크, 가동 시간)은 숨김 */
+  .statusbar.busy .sb-stats .opt, .statusbar.busy .sb-uptime { display: none; }
+  @media (max-width: 1100px) { .sb-stats .opt { display: none; } }
+  @media (max-width: 900px) { .sb-uptime { display: none; } }
+  @media (max-width: 640px) { .sb-stats .meter { display: none; } }
+  .sb-right { margin-left: auto; display: flex; align-items: center; gap: 2px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sb-uptime { color: var(--faint); flex: none; margin-left: -10px; }
+  .sb-uptime::before { content: "·"; margin-right: 6px; color: var(--dim); }
+  #sbFollow { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; color: var(--dim); }
+  #sbFollow.on { color: var(--accent); }
+  .sb-right button { border: 0; background: transparent; color: inherit; padding: 2px 6px; border-radius: 4px; cursor: pointer; }
+  .sb-right button:hover { background: var(--hover); color: var(--text); }
+
+  /* ---------- 대화상자 / 메뉴 / 알림 ---------- */
+  .backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(4, 6, 9, .62); animation: fade .12s ease-out; }
+  .dialog {
+    width: 400px; max-width: calc(100vw - 32px); padding: 20px; border-radius: 12px;
+    background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: 0 24px 60px rgba(0, 0, 0, .5); animation: pop .14s ease-out;
+  }
+  .dialog h3 { margin: 0 0 4px; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+  .dialog .body { color: var(--muted); margin-bottom: 14px; user-select: text; }
+  .dialog .body p { margin: 0 0 8px; }
+  .dialog .body b { color: var(--text-2); font-weight: 600; }
+  .dialog .field { height: 38px; font-size: 14px; }
+  .dialog .mono { font: 12px/1.6 var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; word-break: break-all; }
+  .dialog .list { max-height: 160px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+  .dialog .dlg-error { color: var(--danger); font-size: 12px; min-height: 18px; margin: 8px 0 0; }
+  .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+  .menu {
+    position: fixed; z-index: 60; min-width: 230px; padding: 5px; border-radius: 10px; background: var(--panel-2);
+    border: 1px solid var(--line-2); box-shadow: 0 18px 48px rgba(0, 0, 0, .5); animation: fade .08s;
+  }
+  .menu button {
+    width: 100%; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border: 0;
+    background: transparent; border-radius: 6px; cursor: pointer; text-align: left; color: var(--text-2);
+  }
+  .menu button:hover { background: var(--select); color: var(--text); }
+  .menu button svg { color: var(--muted); }
+  .menu button .kbd { margin-left: auto; color: var(--faint); font-size: 11px; padding-left: 12px; }
+  .menu button.on svg { color: var(--accent); }
+  .menu button.danger, .menu button.danger svg { color: var(--danger); }
+  .menu button.danger:hover { background: rgba(255, 107, 107, .12); }
+  .menu hr { border: 0; height: 1px; background: var(--line-2); margin: 5px 6px; }
+  .toasts { position: fixed; right: 16px; bottom: 40px; z-index: 70; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .toast {
+    display: flex; align-items: center; gap: 12px; max-width: 440px; padding: 10px 10px 10px 14px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: 0 14px 36px rgba(0, 0, 0, .45); animation: pop .14s; color: var(--text-2);
+  }
+  .toast .ic { color: var(--ok); }
+  .toast.err { border-color: #5A2E33; }
+  .toast.err .ic { color: var(--danger); }
+  .toast .msg { flex: 1; }
+  .toast .act { border: 0; background: transparent; color: var(--accent); font-weight: 650; cursor: pointer; padding: 5px 8px; border-radius: 6px; }
+  .toast .act:hover { background: var(--accent-soft); }
+
+  /* ================= 폰 (안드로이드 앱): 왼쪽 트리는 서랍, 터미널 아래에 키 줄 ================= */
+  .btn-drawer, .drawer-backdrop, .keyrow { display: none; }
+  .mobile, .mobile body { -webkit-tap-highlight-color: transparent; }
+  .mobile .tree, .mobile .tabbar, .mobile .keyrow, .mobile .side-head, .mobile .statusbar { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .mobile .workspace { grid-template-columns: minmax(0, 1fr); }
+  .mobile .sidebar {
+    position: fixed; z-index: 40; top: 0; bottom: 0; left: 0; width: min(86vw, 360px);
+    transform: translateX(-102%); transition: transform .24s cubic-bezier(.2, .8, .2, 1); border-right: 1px solid var(--line-2);
+  }
+  .mobile.drawer-open .sidebar { transform: none; box-shadow: 12px 0 40px rgba(0, 0, 0, .5); }
+  .mobile .sidebar.dragging { transition: none; }
+  .mobile .splitter { display: none; }
+  .mobile .drawer-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 39; background: rgba(5, 7, 10, .55);
+    opacity: 0; pointer-events: none; transition: opacity .24s;
+  }
+  .mobile.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
+  .mobile .drawer-backdrop.dragging { transition: none; }
+  .mobile .icon-btn.btn-drawer { display: grid; flex: none; width: 44px; height: 100%; border-radius: 0; color: var(--text-2); border-right: 1px solid var(--line); }
+  .mobile .tabbar { padding-left: 0; height: 44px; }
+  .mobile .tab { min-width: 72px; padding: 0 6px 0 12px; }
+  .mobile .row { height: 38px; font-size: 14px; }
+  .mobile .side-head { height: 44px; }
+  .mobile .icon-btn { width: 34px; height: 34px; }
+  .mobile .tree-filter { height: 36px; }
+  .mobile .tree-filter input { font-size: 14px; }
+  .mobile .field { font-size: 16px; height: 42px; }  /* 16px 보다 작으면 폰이 입력할 때 화면을 확대함 */
+  .mobile .btn.primary { height: 44px; }
+  .mobile .sb-where, .mobile .sb-uptime, .mobile #sbFollow { display: none !important; }
+  .mobile .statusbar { padding: 0 6px 0 4px; }
+  .mobile .sb-right { margin-left: auto; }
+  .mobile .menu { min-width: 220px; max-width: calc(100vw - 16px); }
+  .mobile .menu button { min-height: 42px; }
+  .mobile .dialog { width: calc(100vw - 24px); max-width: 440px; }
+  .mobile .toasts { left: 12px; right: 12px; bottom: 96px; align-items: stretch; pointer-events: none; }
+  .mobile .toast { max-width: none; pointer-events: none; }  /* 알림이 터미널 아래쪽을 가려도 손가락은 터미널로 */
+  .mobile .toast button, .mobile .toast a { pointer-events: auto; }
+  /* 키 줄: 폰 키보드에 없는 키. 눌러도 키보드가 닫히지 않게 포커스를 가져가지 않음 */
+  .mobile .keyrow {
+    display: flex; flex: none; gap: 5px; padding: 6px 6px; overflow-x: auto; scrollbar-width: none;
+    background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .mobile .keyrow::-webkit-scrollbar { display: none; }
+  .keyrow button {
+    flex: none; min-width: 42px; height: 38px; padding: 0 9px; border-radius: 8px; border: 1px solid var(--line-2);
+    background: var(--panel-2); color: var(--text-2); font: 600 13px var(--ui); touch-action: manipulation;
+  }
+  .keyrow button.wide { min-width: 58px; }
+  .keyrow button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  .keyrow button:active, .keyrow button.press { background: var(--raised); color: var(--text); }
+  .keyrow .gap { flex: none; width: 4px; }
+  /* 터미널의 숨은 입력칸은 한글을 칠 때 커서 위치로 옮겨짐. 거기를 길게 누르면 폰이 키보드와 자기 선택 메뉴를 띄워서
+     화면이 꼬임 -> 손가락은 늘 터미널 화면이 받게 (누르면 키보드가 뜨는 건 xterm 이 알아서 함) */
+  .mobile .term-stack { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .mobile .term-stack .xterm-helper-textarea, .mobile .term-stack .composition-view { pointer-events: none !important; }
+  /* 구간 선택: 키 줄 자리에 안내와 복사/취소 */
+  .selbar { display: none; }
+  .mobile .selbar:not([hidden]) {
+    display: flex; flex: none; align-items: center; gap: 8px; height: 51px; padding: 0 8px 0 12px;
+    background: var(--panel-2); border-top: 1px solid var(--accent-line);
+  }
+  .mobile .selbar .sel-hint { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 1.3; }
+  .mobile .selbar .sel-hint b { color: var(--text); font-weight: 600; }
+  .mobile .selbar .btn { height: 38px; padding: 0 16px; }
+  .mobile .term-stack.selecting { box-shadow: inset 0 0 0 1px var(--accent-line); }
+  /* 선택하는 동안 터미널 위를 덮는 투명한 판: 손가락을 이 판이 받음
+     (xterm 은 선택을 그릴 때 안쪽 요소를 지웠다 다시 만들어서, 그 요소에서 시작한 터치는 중간에 끊김) */
+  .sel-layer { position: absolute; inset: 0; z-index: 30; touch-action: none; }
+</style>
+</head>
+<body>
+  <main class="workspace" id="workspace">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-top">
+        <span class="mark" data-icon="prompt"></span>
+        <span class="brand">SSH Lite</span>
+        <div class="pill" id="pill"><span class="dot"></span><span id="pillText">연결 안 됨</span></div>
+      </div>
+      <form class="connect-pane" id="loginForm" autocomplete="off">
+        <div class="cp-card">
+          <div class="cp-head"><b>서버</b><span>빠른 연결</span></div>
+          <div><label class="label" for="host">호스트</label><input class="field" id="host" spellcheck="false" placeholder="예: myserver.example.com" autocapitalize="off"></div>
+          <div class="cp-row">
+            <div><label class="label" for="port">포트</label><input class="field mono" id="port" inputmode="numeric" placeholder="22"></div>
+            <div><label class="label" for="user">사용자</label><input class="field" id="user" spellcheck="false" placeholder="사용자 이름" autocapitalize="off"></div>
+          </div>
+          <label class="check"><input type="checkbox" id="autoConnect">앱을 켜면 바로 연결</label>
+          <button class="btn primary" id="btnConnect" type="submit">연결</button>
+          <p class="login-error" id="loginError"></p>
+        </div>
+        <p class="hint" id="keyHint"></p>
+      </form>
+      <div class="files-pane" id="filesPane" hidden>
+        <div class="side-head">
+          <nav class="crumbs" id="crumbs" aria-label="현재 폴더"></nav>
+          <button class="icon-btn" id="btnUp" title="상위 폴더 (Backspace)" aria-label="상위 폴더" data-icon="up"></button>
+          <button class="icon-btn" id="btnUpload" title="업로드 (탐색기에서 끌어다 놓아도 돼요)" aria-label="업로드" data-icon="upload"></button>
+          <button class="icon-btn" id="btnSideMenu" title="새 폴더 · 새로고침 · 보기" aria-label="파일 메뉴" data-icon="more"></button>
+        </div>
+        <div class="tree-filter" id="treeFilter">
+          <span data-icon="search"></span>
+          <input id="filterInput" placeholder="이름으로 거르기" aria-label="이름으로 거르기" spellcheck="false">
+          <span class="f-count" id="filterCount"></span>
+          <button class="icon-btn" id="btnFilterClose" title="지우기 (Esc)" aria-label="거르기 지우기" data-icon="x" hidden></button>
+        </div>
+        <div class="tree" id="tree" tabindex="0" aria-label="서버 파일"></div>
+        <div class="drop-hint" id="dropHint" hidden><span data-icon="upload"></span><span>여기에 업로드</span><b id="dropHintPath"></b></div>
+      </div>
+      <div class="splitter" id="splitter"></div>
+    </aside>
+    <section class="term-wrap">
+      <div class="tabbar" id="tabbar">
+        <button class="icon-btn btn-drawer" id="btnDrawer" title="서버 파일" aria-label="서버 파일 열기" data-icon="menu"></button>
+        <div class="tabs" id="tabs" role="tablist" aria-label="터미널"></div>
+        <button class="icon-btn tab-add" id="btnNewTab" title="새 탭" aria-label="새 탭" data-icon="plus"></button>
+        <button class="icon-btn tab-menu" id="btnMenu" title="메뉴" aria-label="메뉴" data-icon="more"></button>
+      </div>
+      <div class="term-stack" id="termStack"><div class="sel-layer" id="selLayer" hidden></div></div>
+      <div class="keyrow" id="keyRow" aria-label="특수 키">
+        <button data-k="esc">Esc</button><button data-k="tab">Tab</button><button data-k="ctrl" class="wide">Ctrl</button>
+        <button data-k="left">←</button><button data-k="down">↓</button><button data-k="up">↑</button><button data-k="right">→</button>
+        <span class="gap"></span>
+        <button data-k="alt">Alt</button><button data-k="home">Home</button><button data-k="end">End</button>
+        <button data-k="pgup">PgUp</button><button data-k="pgdn">PgDn</button>
+        <span class="gap"></span>
+        <button data-k="|">|</button><button data-k="~">~</button><button data-k="/">/</button><button data-k="-">-</button>
+        <button data-k="paste" class="wide">붙여넣기</button>
+      </div>
+      <div class="selbar" id="selBar" hidden>
+        <span class="sel-hint" id="selHint">복사할 부분을 손가락으로 <b>쭉 그으세요</b></span>
+        <button class="btn" id="btnSelCancel">취소</button>
+        <button class="btn primary" id="btnSelCopy">복사</button>
+      </div>
+      <div class="search-bar" id="searchBar" role="search" hidden>
+        <span class="sb-ico" data-icon="search"></span>
+        <input id="searchInput" placeholder="터미널에서 찾기" aria-label="찾을 글자" spellcheck="false">
+        <span class="sb-status" id="searchStatus"></span>
+        <button class="icon-btn" id="btnSearchPrev" title="이전 (Shift+Enter)" aria-label="이전" data-icon="chevUp"></button>
+        <button class="icon-btn" id="btnSearchNext" title="다음 (Enter)" aria-label="다음" data-icon="chevDown"></button>
+        <button class="icon-btn" id="btnSearchClose" title="닫기 (Esc)" aria-label="닫기" data-icon="x"></button>
+      </div>
+      <div class="zoom-badge" id="zoomBadge" hidden></div>
+      <div class="term-empty" id="termEmpty" hidden>
+        <p>열린 터미널이 없어요.</p>
+        <div class="empty-actions">
+          <button class="btn primary" id="btnEmptySsh" hidden><span data-icon="server"></span>서버 터미널</button>
+          <button class="btn primary" id="btnEmptyConnect" hidden><span data-icon="server"></span>서버 연결</button>
+          <button class="btn" id="btnEmptyCmd"><span data-icon="monitor"></span>명령 프롬프트</button>
+          <button class="btn" id="btnEmptyPs"><span data-icon="monitor"></span>PowerShell</button>
+        </div>
+      </div>
+      <div class="term-banner" id="termBanner" role="status" hidden>
+        <span id="termBannerText"></span>
+        <button class="btn" id="btnReopen"></button>
+      </div>
+    </section>
+  </main>
+  <footer class="statusbar">
+    <span class="sb-where" id="sbWhere"><span class="dot"></span><span id="sbWhereText"></span></span>
+    <span class="sb-uptime" id="sbUptime" hidden></span>
+    <span class="transfer" id="transfer" hidden>
+      <span class="t-kind" id="tKind"></span><span class="t-name" id="tName"></span>
+      <span class="bar"><i id="tBar"></i></span>
+      <span class="t-num" id="tBytes"></span><span class="t-num t-speed" id="tSpeed"></span><span class="t-num" id="tCount"></span>
+      <button class="icon-btn" id="btnCancel" title="전송 취소" aria-label="전송 취소" data-icon="x"></button>
+    </span>
+    <span class="sb-right">
+      <span class="sb-stats" id="sbStats" hidden></span>
+      <button id="sbFollow" data-icon="target"></button>
+      <button id="sbFont" title="글자 크기 (Ctrl+휠, Ctrl+0 원래대로)"></button>
+    </span>
+  </footer>
+
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <div class="backdrop" id="modal" hidden></div>
+  <div class="menu" id="menu" role="menu" hidden></div>
+  <div class="toasts" id="toasts"></div>
+
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script src="addon-search.js"></script>
+<script src="addon-web-links.js"></script>
+<script>
+// 폰 앱(안드로이드): pywebview 대신 AndroidBridge 로 같은 기능(Java 쪽 Core)을 부름. ?mobile 은 PC 에서 폰 화면 확인용
+(() => {
+  if (window.AndroidBridge || new URLSearchParams(location.search).has("mobile")) document.documentElement.classList.add("mobile");
+  if (!window.AndroidBridge || window.pywebview) return;
+  const pending = new Map();
+  let seq = 0;
+  window.__bridgeResolve = (id, value) => {
+    const done = pending.get(id);
+    pending.delete(id);
+    if (done) done(value);
+  };
+  window.pywebview = { api: new Proxy({}, { get: (_, name) => (...args) => new Promise(resolve => {
+    const id = ++seq;
+    pending.set(id, resolve);
+    AndroidBridge.call(String(name), JSON.stringify(args), id);
+  }) }) };
+  addEventListener("DOMContentLoaded", () => setTimeout(() => dispatchEvent(new Event("pywebviewready")), 0));
+})();
+const MOBILE = document.documentElement.classList.contains("mobile");
+"use strict";
+
+/* ================================================================ 아이콘 */
+const ICONS = {
+  prompt: '<path d="M6 8l5 4-5 4M13 17h5" stroke-width="3"/>',
+  folder: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" fill="currentColor" stroke="none"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  upload: '<path d="M12 15V4M7 9l5-5 5 5M5 20h14"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  folderPlus: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 11v5M9.5 13.5h5"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5"/><path d="M20 3.5v5h-5"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  paste: '<rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5V3.5h6v1M9 10h6M9 14h4"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M14 9l2 2"/>',
+  open: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v1"/><path d="M3 17.5V9.5M3 17.5A2.5 2.5 0 0 0 5.5 20h12l3.5-8H7.5z"/>',
+  menu: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/>',
+  more: '<circle cx="5" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="19" cy="12" r="1.4" fill="currentColor"/>',
+  power: '<path d="M12 3v8M6.3 6.6a8 8 0 1 0 11.4 0"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  server: '<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7.5 7.5h.01M7.5 16.5h.01" stroke-width="2.6"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>',
+  chevUp: '<path d="M6 15l6-6 6 6"/>',
+  chevDown: '<path d="M6 9l6 6 6-6"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/>',
+  edit2: '<path d="M14 4l6 6M4 20l1.5-5.5L15 5l4 4-9.5 9.5z"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12.5" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>',
+  alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.5"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/>',
+};
+function icon(name, size = 16, extra = "") {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${ICONS[name]}</svg>`;
+}
+document.querySelectorAll("[data-icon]").forEach(el => {
+  const size = el.classList.contains("mark") ? 13 : el.closest(".statusbar") ? 11 : 16;
+  el.innerHTML = icon(el.dataset.icon, size) + el.innerHTML;
+});
+
+const FILE_COLORS = [
+  [/\.(png|jpe?g|gif|webp|svg|bmp|ico|heic)$/i, "#C39BFF"],
+  [/\.(zip|tar|gz|tgz|bz2|xz|7z|rar|zst|iso)$/i, "#F2B84B"],
+  [/\.(py|js|ts|tsx|jsx|sh|bash|zsh|c|h|cpp|go|rs|java|kt|rb|php|lua|sql)$/i, "#6E9BFF"],
+  [/\.(json|ya?ml|toml|ini|conf|cfg|env|xml|html?|css)$/i, "#4CC9B0"],
+  [/\.(md|txt|log|csv|pdf|docx?)$/i, "#AEB6C4"],
+];
+function fileColor(name) {
+  for (const [re, color] of FILE_COLORS) if (re.test(name)) return color;
+  return "#7C8596";
+}
+
+/* ================================================================ 작은 도우미 */
+const $ = sel => document.querySelector(sel);
+const api = () => window.pywebview.api;
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const parentOf = p => p.replace(/\/+$/, "").replace(/\/[^/]*$/, "") || "/";
+const joinPath = (dir, name) => (dir === "/" ? "" : dir) + "/" + name;
+const baseName = p => p.replace(/\/+$/, "").split("/").pop() || "/";
+const shQuote = s => "'" + s.replace(/'/g, "'\\''") + "'";
+function fmtSize(n) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return i === 0 ? `${n} B` : `${n.toFixed(n < 10 ? 1 : 0)} ${units[i]}`;
+}
+function fmtDate(t) {
+  const d = new Date(t * 1000), z = v => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+}
+async function copyText(text) {
+  try { if (await api().clipboard_set(text)) return; } catch {}  // Windows 클립보드에 직접 (권한 창 없음)
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+  }
+}
+
+/* ================================================================ 대화상자 / 메뉴 / 알림 */
+function modal({ title, body = "", input = null, ok = "확인", cancel = "취소", danger = false }) {
+  return new Promise(resolve => {
+    const root = $("#modal");
+    const prevFocus = document.activeElement;
+    root.innerHTML = `
+      <div class="dialog" role="dialog" aria-modal="true">
+        <h3>${esc(title)}</h3>
+        <div class="body">${body}</div>
+        ${input ? `<input class="field" id="dlgInput" type="${input.secret ? "password" : "text"}" spellcheck="false">
+                   <p class="dlg-error">${esc(input.error || "")}</p>` : ""}
+        <div class="actions">
+          ${cancel ? `<button class="btn" data-act="cancel">${esc(cancel)}</button>` : ""}
+          <button class="btn ${danger ? "danger" : "primary"}" data-act="ok">${esc(ok)}</button>
+        </div>
+      </div>`;
+    root.hidden = false;
+    const field = $("#dlgInput");
+    if (field) {
+      field.value = input.value || "";
+      field.focus();
+      if (input.selectStem && field.value.lastIndexOf(".") > 0) field.setSelectionRange(0, field.value.lastIndexOf("."));
+      else field.select();
+    } else root.querySelector('[data-act="ok"]').focus();
+
+    const close = value => {
+      root.hidden = true; root.innerHTML = "";
+      document.removeEventListener("keydown", onKey, true);
+      if (prevFocus && prevFocus.focus) prevFocus.focus();
+      resolve(value);
+    };
+    const accept = () => close(field ? field.value : true);
+    const reject = () => close(field ? null : false);
+    const onKey = e => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); reject(); }
+      else if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); accept(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    root.onclick = e => {
+      const act = e.target.closest("[data-act]")?.dataset.act;
+      if (act === "ok") accept();
+      else if (act === "cancel" || e.target === root) reject();
+    };
+  });
+}
+const listHtml = names => `<div class="list">${names.slice(0, 12).map(esc).join("<br>")}${names.length > 12 ? `<br>… 외 ${names.length - 12}개` : ""}</div>`;
+
+function showMenu(x, y, items) {
+  const menu = $("#menu");
+  menu.innerHTML = items.map((it, i) => it === "-" ? "<hr>" :
+    `<button data-i="${i}" role="menuitem" class="${it.danger ? "danger" : ""}${it.on ? " on" : ""}">${icon(it.icon, 15)}<span>${esc(it.label)}</span>${it.kbd ? `<span class="kbd">${it.kbd}</span>` : ""}</button>`).join("");
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  // 화면 밖으로 나가지 않게 (좌표가 없으면 가운데)
+  menu.style.left = Math.max(8, Math.min(Number.isFinite(x) ? x : (innerWidth - r.width) / 2, innerWidth - r.width - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(Number.isFinite(y) ? y : (innerHeight - r.height) / 2, innerHeight - r.height - 8)) + "px";
+  const shownAt = performance.now();
+  menu.onclick = e => {
+    const b = e.target.closest("button[data-i]");
+    if (!b || (MOBILE && performance.now() - shownAt < 350)) return;  // 폰: 길게 누른 손가락을 뗄 때 눌리지 않게
+    hideMenu();
+    items[+b.dataset.i].run();
+  };
+}
+function hideMenu() { $("#menu").hidden = true; }
+addEventListener("mousedown", e => { if (!e.target.closest("#menu")) hideMenu(); }, true);
+addEventListener("touchstart", e => {
+  if ($("#menu").hidden || e.target.closest("#menu")) return;
+  hideMenu();
+  e.preventDefault();
+  e.stopPropagation();
+}, { passive: false, capture: true });
+// 키보드가 올라오거나 내려가서 화면 크기가 바뀌면 열린 메뉴를 화면 안으로 다시 맞춤
+addEventListener("resize", () => {
+  const menu = $("#menu");
+  if (menu.hidden) return;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - r.width - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(r.top, innerHeight - r.height - 8)) + "px";
+});
+addEventListener("keydown", e => {  // 열린 메뉴는 Esc 로 닫기 (다른 Esc 동작보다 먼저)
+  if (e.key === "Escape" && !$("#menu").hidden) { e.preventDefault(); e.stopPropagation(); hideMenu(); }
+}, true);
+addEventListener("blur", hideMenu);
+
+function toast(message, { error = false, action = null, timeout = 4500 } = {}) {
+  const el = document.createElement("div");
+  el.className = "toast" + (error ? " err" : "");
+  el.innerHTML = `<span class="ic">${icon(error ? "alert" : "check", 17)}</span><span class="msg">${esc(message)}</span>
+                  ${action ? `<button class="act">${esc(action.label)}</button>` : ""}`;
+  if (action) el.querySelector(".act").onclick = () => { action.run(); el.remove(); };
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), error ? timeout + 3000 : timeout);
+}
+
+/* ================================================================ 상태 */
+const state = {
+  cfg: null,
+  connected: false,
+  label: "",
+  root: null,           // 트리 맨 위 폴더
+  nodes: new Map(),     // 폴더 경로 -> { entries, open, loading }
+  index: new Map(),     // 경로 -> 항목 (지금 화면에 보이는 것)
+  order: [],            // 화면에 보이는 순서대로의 경로
+  selected: new Set(),
+  anchor: null,         // Shift 선택 기준
+  showHidden: false,
+  follow: true,         // 파일 트리가 서버 탭의 현재 폴더를 따라감
+  fontSize: 14,
+  home: null,
+  lastLabel: null,      // 마지막으로 연결했던 서버 (같은 서버로 다시 연결되면 탭을 살림)
+  reconnectAttempt: 0,
+  reconnectTimer: null,
+  dropDir: null,        // 끌어다 놓을 폴더
+  transfer: null,
+};
+
+function setPill(kind, text) {
+  $("#pill").className = "pill " + kind;
+  $("#pillText").textContent = text;
+  $("#pill").title = text;
+}
+
+/* ================================================================ 연결 */
+const isAndroid = () => !!(state.cfg && state.cfg.platform === "android");
+
+async function init() {
+  // 글꼴을 먼저 불러와야 터미널이 글자 폭을 제대로 잼
+  try { await Promise.all([document.fonts.load('14px "JetBrains Mono"'), document.fonts.load("13px Pretendard")]); } catch {}
+  state.cfg = await api().get_config();
+  $("#host").value = state.cfg.host;
+  $("#port").value = state.cfg.port;
+  $("#user").value = state.cfg.user;
+  $("#autoConnect").checked = !!state.cfg.auto_connect;
+  state.showHidden = !!state.cfg.show_hidden;
+  state.follow = state.cfg.follow_cwd !== false;
+  state.fontSize = state.cfg.font_size || 14;
+  updateStatus();
+  document.documentElement.style.setProperty("--side-w", (state.cfg.sidebar_width || 300) + "px");
+  const here = isAndroid() ? "이 폰" : "이 PC";
+  $("#keyHint").textContent = state.cfg.has_key
+    ? `${here}의 SSH 키가 서버에 등록돼 있으면 비밀번호 없이 바로 연결돼요.`
+    : "처음 한 번만 비밀번호를 입력하면, 다음부터는 비밀번호 없이 바로 연결돼요.";
+  $("#autoConnect").onchange = () => api().save_ui({ auto_connect: $("#autoConnect").checked });
+  if (isAndroid()) {  // 폰: 내 PC 탭이 없음. 연결 전에는 서랍(연결 카드)을 열어 둠
+    $("#btnEmptyCmd").hidden = $("#btnEmptyPs").hidden = true;
+    $("#termEmpty").hidden = false;
+    updateEmpty();
+  }
+  if (state.cfg.auto_connect) connect();
+  else if (isAndroid()) openDrawer();
+  else newTab("cmd");  // 서버에 연결하기 전에도 바로 쓸 수 있게 내 PC 터미널부터
+}
+
+function setConnecting(on) {
+  const btn = $("#btnConnect");
+  btn.disabled = on;
+  btn.innerHTML = on ? '<span class="spin"></span>연결하는 중…' : "연결";
+  if (on) setPill("busy", "연결하는 중…");
+}
+
+async function connect(password = null, trust = null) {
+  stopReconnect();
+  const host = $("#host").value.trim(), port = $("#port").value.trim(), user = $("#user").value.trim();
+  setLoginMsg("");
+  setConnecting(true);
+  const r = await api().connect(host, port, user, password, trust);
+  setConnecting(false);
+
+  if (r.need === "hostkey") {
+    const ok = await modal({
+      title: "처음 접속하는 서버예요",
+      body: `<p>서버가 보낸 지문이 맞는지 확인하고 계속하세요. 확인하면 다음부터는 묻지 않아요.</p>
+             <div class="mono">${esc(r.host)}<br>${esc(r.type)}<br>${esc(r.fingerprint)}</div>`,
+      ok: "신뢰하고 연결",
+    });
+    return ok ? connect(password, r.fingerprint) : showLoggedOut();
+  }
+  if (r.need === "password") {
+    const pw = await modal({
+      title: "비밀번호",
+      body: `<p>${esc(user)}@${esc(host)} 의 비밀번호를 입력하세요.</p>`,
+      input: { secret: true, error: r.retry ? "비밀번호가 틀렸어요. 다시 입력하세요." : "" },
+      ok: "연결",
+    });
+    return pw === null ? showLoggedOut() : connect(pw, trust);
+  }
+  if (r.error) {
+    setLoginMsg(r.error);
+    showLoggedOut();
+    return;
+  }
+  onConnected(r);
+  if (r.used_password) setupKey();  // 비밀번호로 들어왔으면 묻지 않고 키 등록 -> 다음부터 비밀번호 없이
+  state.titlesError = r.titles_error || null;
+  if (r.titles_error && !state.titlesErrorShown) {
+    state.titlesErrorShown = true;
+    toast("탭 이름에 실행 중인 명령을 표시하지 못했어요: " + r.titles_error, { error: true });
+  }
+  if (r.titles_added) {
+    toast("서버 탭 이름에 현재 폴더와 실행 중인 명령이 보이게 했어요 (서버 ~/.bashrc에 추가, 원본은 백업).",
+          { action: { label: "끄기", run: () => setTabTitles(false) }, timeout: 9000 });
+  }
+}
+
+function showLoggedOut() {
+  if (!state.connected) setPill(tabs.some(t => t.kind === "ssh") ? "lost" : "", tabs.some(t => t.kind === "ssh") ? "연결 끊김" : "연결 안 됨");
+}
+
+function setLoginMsg(text, info = false) {
+  const el = $("#loginError");
+  el.textContent = text || "";
+  el.classList.toggle("info", !!info);
+}
+
+function showSidebar(connected) {
+  $("#filesPane").hidden = !connected;
+  $("#loginForm").hidden = connected;
+  $("#btnEmptySsh").hidden = !connected;
+  updateEmpty();
+}
+function updateEmpty() {
+  $("#btnEmptyConnect").hidden = !isAndroid() || state.connected;
+}
+
+async function onConnected(r) {
+  const sameServer = state.lastLabel === r.label;
+  const prevRoot = state.root;
+  stopReconnect();
+  state.connected = true;
+  state.label = state.lastLabel = r.label;
+  state.home = r.home;
+  setPill("on", r.label);
+  showSidebar(true);
+  if (MOBILE) closeDrawer();
+  startStats();
+  const oldTabs = tabs.filter(t => t.kind === "ssh");
+  if (sameServer && oldTabs.length) {
+    // 연결이 끊겼다가 같은 서버로 다시 붙음: 서버 탭을 화면 내용 그대로 살리고 원래 폴더로
+    for (const t of oldTabs) await reviveTab(t);
+    if (activeTab) activate(activeTab);
+  } else {
+    oldTabs.forEach(removeTab);
+    await newTab("ssh");
+  }
+  state.nodes.clear();
+  setRoot(sameServer && prevRoot ? prevRoot : r.home);
+}
+
+async function reviveTab(tab) {
+  const r = await api().term_open(tab.term.cols, tab.term.rows, "ssh");
+  if (r.error) return;
+  tab.id = r.id;
+  tab.term.write("\r\n\x1b[2m── 다시 연결했어요 ──\x1b[0m\r\n");
+  // 원래 폴더로: 프롬프트가 뜬 뒤(출력이 잠잠해진 뒤)에 보내야 명령이 두 번 찍히지 않음
+  if (tab.cwd && tab.cwd !== "~") tab.pendingCd = `cd ${cdArg(tab.cwd)}\r`;
+}
+
+const cdArg = dir => dir === "~" ? "~" : dir.startsWith("~/") ? "~/" + shQuote(dir.slice(2)) : shQuote(dir);
+
+// 끊기면 1, 2, 4, 8, 16, 30초... 간격으로 조용히 다시 연결 (SSH 키가 있으면 비밀번호 없이 됨)
+function scheduleReconnect() {
+  stopReconnect();
+  let left = Math.min(30, 2 ** state.reconnectAttempt);
+  state.reconnectAttempt++;
+  const tick = () => {
+    if (left <= 0) return tryReconnect();
+    setPill("lost", `${left}초 뒤 다시 연결`);
+    state.bannerText = `서버와 연결이 끊어졌어요 · ${left}초 뒤에 다시 연결해요`;
+    updateBanner();
+    left--;
+  };
+  tick();
+  state.reconnectTimer = setInterval(tick, 1000);
+}
+
+function stopReconnect() {
+  clearInterval(state.reconnectTimer);
+  state.reconnectTimer = null;
+  state.bannerText = null;
+}
+
+async function tryReconnect() {
+  stopReconnect();
+  setPill("busy", "다시 연결하는 중…");
+  state.bannerText = "다시 연결하는 중…";
+  updateBanner();
+  const host = $("#host").value.trim(), port = $("#port").value.trim(), user = $("#user").value.trim();
+  const r = await api().connect(host, port, user, null, null);
+  if (state.connected) return;  // 그 사이 직접 연결함
+  if (r.ok) {
+    state.reconnectAttempt = 0;
+    await onConnected(r);
+    toast("다시 연결했어요.");
+  } else if (r.need) {
+    // 비밀번호나 서버 확인이 필요하면 자동으로는 못 함 -> 버튼으로
+    state.reconnectAttempt = 0;
+    setPill("lost", "연결 끊김");
+    state.bannerText = null;
+    updateBanner();
+  } else {
+    setLoginMsg(r.error);
+    scheduleReconnect();
+  }
+}
+
+// 절전에서 깨어나거나 네트워크가 돌아오면 기다리지 말고 바로 시도
+addEventListener("online", () => { if (state.reconnectTimer) tryReconnect(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && state.reconnectTimer) tryReconnect(); });
+
+async function setupKey() {
+  const r = await api().setup_key();
+  if (r.error) toast("비밀번호 없이 접속하도록 설정하지 못했어요: " + r.error, { error: true });
+  else toast("다음부터는 비밀번호 없이 바로 연결돼요.");
+}
+
+// 서버 탭 이름에 폴더/실행 중인 명령 표시 (기본 켜짐). 켜면 서버 ~/.bashrc 에 몇 줄을 추가함
+async function setTabTitles(on) {
+  const r = await api().set_tab_titles(on);
+  if (r.error) { state.titlesError = r.error; return toast(r.error, { error: true }); }
+  state.titlesError = null;
+  state.cfg.tab_titles = on;
+  toast(on ? "탭 이름 표시를 켰어요. 새로 여는 서버 탭부터 적용돼요."
+           : "탭 이름 표시를 껐어요. 서버 ~/.bashrc에서 추가했던 줄을 지웠어요.",
+        on ? { action: { label: "새 서버 탭", run: () => newTab("ssh") } } : {});
+}
+
+function onDisconnected(message) {
+  if (!state.connected) return;
+  state.connected = false;
+  stopStats();
+  setPill("lost", "연결 끊김");
+  hideTransfer();
+  showSidebar(false);
+  if (message) setLoginMsg(message);
+  else setLoginMsg("연결이 끊어졌어요. 자동으로 다시 연결하고 있어요.", true);
+  renderTabs();
+  if (state.lastLabel) scheduleReconnect();
+  else updateBanner();
+}
+
+async function disconnect() {
+  stopReconnect();
+  stopStats();
+  state.reconnectAttempt = 0;
+  state.lastLabel = null;
+  await api().disconnect();
+  state.connected = false;
+  state.nodes.clear();
+  state.root = null;
+  tabs.filter(t => t.kind === "ssh").forEach(removeTab);  // 내 PC 탭은 그대로 둠
+  hideTransfer();
+  showSidebar(false);
+  setPill("", "연결 안 됨");
+  updateBanner();
+  if (activeTab) activeTab.term.focus();
+}
+
+/* ================================================================ 터미널 탭 */
+// 탭마다 자기 화면(xterm)과 서버 셸을 따로 가짐. 다른 탭으로 가도 이전 탭은 그대로 살아 있음.
+const tabs = [];     // { key, id, kind: "ssh" | "cmd" | "powershell", term, fit, el, title, unread }
+let activeTab = null, tabKeySeq = 0;
+
+const TERM_THEME = {
+  background: "#0E1014", foreground: "#D9DEE7", cursor: "#7EA6FF", cursorAccent: "#0E1014",
+  selectionBackground: "rgba(110,155,255,0.30)",
+  black: "#1B1F27", red: "#FF6B6B", green: "#4ADE9B", yellow: "#F5C26B", blue: "#6EA8FF",
+  magenta: "#C99BFF", cyan: "#5DD6E0", white: "#C9D1DC", brightBlack: "#5C6575", brightRed: "#FF8A8A",
+  brightGreen: "#7BEBB8", brightYellow: "#FFD68A", brightBlue: "#93BEFF", brightMagenta: "#DDB8FF",
+  brightCyan: "#8BE6EE", brightWhite: "#F2F5F9",
+};
+
+function defaultKind() {
+  if (activeTab && (activeTab.kind !== "ssh" || state.connected)) return activeTab.kind;
+  return state.connected || isAndroid() ? "ssh" : "cmd";
+}
+
+async function newTab(kind = defaultKind()) {
+  if (kind === "ssh" && !state.connected) {
+    toast("먼저 왼쪽에서 서버에 연결하세요.");
+    if (MOBILE) openDrawer();
+    else $("#host").focus();
+    return null;
+  }
+  const el = document.createElement("div");
+  el.className = "term-pane";
+  $("#termStack").appendChild(el);
+  const term = new Terminal({
+    fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono"),
+    fontSize: state.fontSize, lineHeight: 1.2, cursorBlink: true, scrollback: 10000, allowProposedApi: true,
+    theme: TERM_THEME,
+  });
+  const fit = new FitAddon.FitAddon();
+  const search = new SearchAddon.SearchAddon();
+  term.loadAddon(fit);
+  term.loadAddon(search);
+  search.onDidChangeResults(({ resultIndex, resultCount }) => {
+    if (activeTab && activeTab.search === search && !$("#searchBar").hidden) showSearchCount(resultIndex, resultCount);
+  });
+  // 주소는 Ctrl+클릭하면 브라우저로 (그냥 클릭은 글자 선택과 헷갈려서)
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((e, uri) => { if (e.ctrlKey || e.metaKey) api().open_url(uri); }));
+  term.open(el);
+  const tab = { key: ++tabKeySeq, fresh: true, id: null, kind, term, fit, search, el, title: "", cwd: null, unread: false, inbuf: "", sending: false };
+  tabs.push(tab);
+  activate(tab);
+  try { fit.fit(); } catch {}
+
+  const r = await api().term_open(term.cols, term.rows, kind);
+  if (r.error) {
+    removeTab(tab);
+    if (kind === "ssh") onDisconnected(r.error);
+    else toast("터미널을 열 수 없어요: " + r.error, { error: true });
+    return null;
+  }
+  tab.id = r.id;
+  term.onData(d => typeInto(tab, MOBILE ? applyMods(d) : d));
+  if (MOBILE) {
+    const ta = el.querySelector(".xterm-helper-textarea");
+    if (ta) for (const [k, v] of [["autocomplete", "off"], ["autocorrect", "off"], ["autocapitalize", "off"], ["spellcheck", "false"]]) ta.setAttribute(k, v);
+  }
+  term.onResize(({ cols, rows }) => {
+    if (tab.id && isAlive(tab)) api().term_resize(tab.id, cols, rows);
+    if (tab === activeTab) updateStatus();
+  });
+  term.onTitleChange(t => {
+    if (t === tab.title) return;
+    tab.title = t;
+    const cwd = tabInfo(tab).cwd;
+    if (cwd && cwd !== tab.cwd) {
+      tab.cwd = cwd;
+      if (tab === activeTab) followTab(tab);
+    }
+    renderTabs();
+  });
+  // Ctrl+C: 선택한 글자가 있으면 복사, 없으면 평소처럼 중단 신호 / Ctrl+V: 붙여넣기
+  term.attachCustomKeyEventHandler(e => {
+    if (e.type !== "keydown") return true;
+    const k = e.key.toLowerCase();
+    // 복사: Ctrl+C(선택이 있을 때) / Ctrl+Shift+C / Ctrl+Insert
+    if ((e.ctrlKey && k === "c" && (term.hasSelection() || e.shiftKey)) || (e.ctrlKey && !e.shiftKey && e.key === "Insert")) {
+      copySelection(tab);
+      return false;
+    }
+    // 붙여넣기: Ctrl+V(브라우저 기본 붙여넣기 -> xterm) / Ctrl+Shift+V / Shift+Insert
+    if ((e.ctrlKey && e.shiftKey && k === "v") || (e.shiftKey && !e.ctrlKey && e.key === "Insert")) {
+      e.preventDefault();
+      pasteClipboard(tab);
+      return false;
+    }
+    if (e.ctrlKey && k === "v") return false;
+    // 서버 셸 프롬프트에서는 Home/End/Ctrl+화살표를 어느 셸이든 알아듣는 키로 바꿔 보냄
+    // (zsh 기본 설정처럼 Home/End 를 모르는 셸이 많음. vim·less 같은 전체 화면 프로그램 안에서는 그대로)
+    if (tab.kind === "ssh" && !e.altKey && !e.metaKey && !e.shiftKey
+        && term.buffer.active.type === "normal" && !term.modes.applicationCursorKeysMode) {
+      const seq = e.ctrlKey ? { ArrowLeft: "\x1bb", ArrowRight: "\x1bf" }[e.key]
+                            : { Home: "\x01", End: "\x05" }[e.key];
+      if (seq) {
+        e.preventDefault();
+        typeInto(tab, seq);
+        return false;
+      }
+    }
+    return true;
+  });
+  renderTabs();
+  if (!MOBILE) term.focus();
+  return tab;
+}
+
+function activate(tab) {
+  activeTab = tab;
+  tab.unread = false;
+  tabs.forEach(t => t.el.classList.toggle("active", t === tab));
+  $("#termEmpty").hidden = true;
+  renderTabs();
+  updateBanner();
+  followTab(tab);
+  if (!$("#searchBar").hidden) runSearch(1, true);
+  requestAnimationFrame(() => { try { tab.fit.fit(); } catch {} if (!MOBILE) tab.term.focus(); });
+}
+
+// 트리가 서버 탭의 현재 폴더를 따라감 (탭 이름으로 알게 된 폴더, "~"는 홈 폴더)
+function followTab(tab) {
+  if (!state.follow || !state.connected || !tab || tab.kind !== "ssh" || !tab.cwd || !state.home) return;
+  const dir = tab.cwd === "~" ? state.home : tab.cwd.startsWith("~/") ? joinPath(state.home, tab.cwd.slice(2)) : tab.cwd;
+  if (dir.startsWith("/") && dir !== state.root) setRoot(dir);
+}
+
+function setFontSize(size) {
+  state.fontSize = Math.max(9, Math.min(28, size));
+  tabs.forEach(t => { t.term.options.fontSize = state.fontSize; });
+  if (activeTab) try { activeTab.fit.fit(); } catch {}
+  const badge = $("#zoomBadge");
+  badge.textContent = `글자 크기 ${state.fontSize}`;
+  badge.hidden = false;
+  clearTimeout(setFontSize.timer);
+  setFontSize.timer = setTimeout(() => { badge.hidden = true; }, 900);
+  clearTimeout(setFontSize.save);
+  setFontSize.save = setTimeout(() => api().save_ui({ font_size: state.fontSize }), 500);
+  updateStatus();
+}
+// 숨겨진 탭은 크기를 못 재므로 탭을 바꿀 때 다시 맞춤 (activate 에서 fit)
+$("#termStack").addEventListener("wheel", e => {
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  setFontSize(state.fontSize + (e.deltaY < 0 ? 1 : -1));
+}, { passive: false });
+
+/* ---------- 터미널에서 찾기 (Ctrl+Shift+F) ---------- */
+function openSearch() {
+  if (!activeTab) return;
+  const bar = $("#searchBar");
+  bar.hidden = false;
+  const input = $("#searchInput");
+  const sel = activeTab.term.getSelection();
+  if (sel && !sel.includes("\n")) input.value = sel;
+  input.focus();
+  input.select();
+  if (input.value) runSearch(1, true);
+}
+function closeSearch() {
+  $("#searchBar").hidden = true;
+  tabs.forEach(t => t.search.clearDecorations());
+  if (activeTab) { activeTab.term.clearSelection(); activeTab.term.focus(); }
+}
+const SEARCH_LOOK = {
+  decorations: {
+    matchBackground: "#24365C", matchBorder: "#24365C", matchOverviewRuler: "#3D5A99",
+    activeMatchBackground: "#4F7FF0", activeMatchBorder: "#7EA6FF", activeMatchColorOverviewRuler: "#7EA6FF",
+  },
+};
+function showSearchCount(index, count) {
+  const status = $("#searchStatus");
+  status.textContent = count ? `${index >= 0 ? index + 1 : "?"}/${count}` : "없음";
+  status.classList.toggle("miss", !count);
+}
+function runSearch(dir, incremental = false) {
+  const q = $("#searchInput").value;
+  const status = $("#searchStatus");
+  if (!activeTab || !q) { status.textContent = ""; status.classList.remove("miss"); activeTab?.search.clearDecorations(); return; }
+  const opts = { ...SEARCH_LOOK, incremental };
+  const found = dir > 0 ? activeTab.search.findNext(q, opts) : activeTab.search.findPrevious(q, SEARCH_LOOK);
+  if (!found) showSearchCount(-1, 0);
+}
+$("#searchInput").addEventListener("input", () => runSearch(1, true));
+$("#searchInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); runSearch(e.shiftKey ? -1 : 1); }
+  else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+});
+$("#btnSearchNext").onclick = () => runSearch(1);
+$("#btnSearchPrev").onclick = () => runSearch(-1);
+$("#btnSearchClose").onclick = closeSearch;
+
+// 서버 탭은 연결이 끊기면 죽은 탭이 됨 (내 PC 탭은 상관없음)
+const isAlive = tab => tab.kind !== "ssh" || state.connected;
+
+function updateBanner() {
+  const dead = activeTab && !isAlive(activeTab);
+  $("#termBanner").hidden = !dead;
+  if (!dead) return;
+  if (state.bannerText) showBanner(state.bannerText, "지금 연결", () => tryReconnect());
+  else showBanner("서버와 연결이 끊어졌어요.", "다시 연결", () => connect());
+}
+
+function closeTab(tab) {
+  if (tab.id && isAlive(tab)) api().term_close(tab.id);
+  removeTab(tab);
+}
+
+function removeTab(tab) {
+  const i = tabs.indexOf(tab);
+  if (i < 0) return;
+  tabs.splice(i, 1);
+  tab.term.dispose();
+  tab.el.remove();
+  if (activeTab === tab) {
+    const next = tabs[i] || tabs[i - 1];
+    if (next) activate(next);
+    else { activeTab = null; $("#termEmpty").hidden = false; updateBanner(); }
+  }
+  renderTabs();
+}
+
+// 탭 이름: 실행 중인 명령이 있으면 그 명령, 없으면 현재 폴더
+function tabInfo(tab) {
+  const t = tab.title || "";
+  if (tab.kind === "cmd") {
+    // cmd.exe는 명령을 실행하는 동안 제목을 "...cmd.exe - 명령"으로 바꿈
+    const m = t.match(/\s-\s+(.+)$/);
+    return m ? { text: m[1].trim(), running: true } : { text: "명령 프롬프트" };
+  }
+  if (tab.kind === "powershell") return { text: "PowerShell" };
+  if (!t) return { text: "서버" };
+  // SSH Lite 서버 설정을 켜면 실행 중일 때 "명령 (사용자@서버: 폴더)"
+  let m = t.match(/^(.+) \(([^@\s()]*@[^:\s()]+):\s*(.*)\)$/);
+  if (m) return { text: m[1], running: true, where: m[3], cwd: m[3] };
+  // bash는 보통 프롬프트에서 "사용자@서버: 폴더"로 알려줌 -> 폴더만
+  m = t.match(/^[^@\s]*@[^:\s]+:\s*(.+)$/);
+  return m ? { text: m[1], cwd: m[1] } : { text: t };
+}
+
+function renderTabs() {
+  if (tabDrag && tabDrag.moved) { tabDrag.pending = true; return; }  // 끄는 중엔 놓을 때 한 번에
+  const strip = $("#tabs");
+  const before = new Map([...strip.querySelectorAll(".tab")].map(el => [el.dataset.key, el.getBoundingClientRect().left]));
+  strip.innerHTML = tabs.map((t, i) => {
+    const info = tabInfo(t);
+    const where = t.kind === "ssh" ? (state.label || "서버") : "내 PC";
+    const tip = info.running ? `실행 중: ${info.text}${info.where ? " · " + info.where : ""}` : (t.title || info.text);
+    return `
+    <div class="tab${t === activeTab ? " active" : ""}${isAlive(t) ? "" : " dead"}${t.kind === "ssh" ? "" : " local"}${info.running ? " running" : ""}${t.fresh ? " entering" : ""}" data-i="${i}" data-key="${t.key}" role="tab" aria-selected="${t === activeTab}"
+         title="${esc(where)} · ${esc(tip)}${i < 9 ? ` (Alt+${i + 1})` : ""}">
+      <span class="tab-ico">${icon(info.running ? "play" : t.kind === "ssh" ? "server" : "monitor", 14)}</span>
+      <span class="tab-title">${esc(info.text)}</span>
+      ${t.unread ? '<span class="tab-unread"></span>' : ""}
+      <button class="tab-x" data-close="${i}" title="닫기 (Ctrl+Shift+W)">${icon("x", 12)}</button>
+    </div>`;
+  }).join("");
+  tabs.forEach(t => { t.fresh = false; });
+  const moved = [];
+  strip.querySelectorAll(".tab").forEach(el => {
+    const was = before.get(el.dataset.key);
+    if (was === undefined) return;
+    const dx = was - el.getBoundingClientRect().left;
+    if (Math.abs(dx) < 1) return;
+    el.style.transition = "none";
+    el.style.transform = `translateX(${dx}px)`;
+    moved.push(el);
+  });
+  if (moved.length) {
+    strip.getBoundingClientRect();  // 시작 위치를 먼저 그리게 함
+    moved.forEach(el => { el.style.transition = ""; el.style.transform = ""; });
+  }
+  strip.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  updateStatus();
+}
+
+$("#tabs").addEventListener("mousedown", e => {
+  const el = e.target.closest(".tab");
+  if (el && e.button === 1) { e.preventDefault(); closeTab(tabs[+el.dataset.i]); }  // 가운데 클릭으로 닫기
+});
+// 탭 바꾸기는 클릭이 끝날 때 (누르는 순간 다시 그리면 끌어서 순서 바꾸기가 시작되지 않음)
+$("#tabs").addEventListener("click", e => {
+  if (tabDrag && tabDrag.justDropped) return;
+  const x = e.target.closest(".tab-x");
+  if (x) return closeTab(tabs[+x.dataset.close]);
+  const el = e.target.closest(".tab");
+  if (el) activate(tabs[+el.dataset.i]);
+});
+
+/* ---------- 탭 순서 바꾸기: 끌어서 놓기 / Ctrl+Shift+PageUp·PageDown ---------- */
+let tabDrag = null;  // { tab, el, startX, from, to, rects, moved, pending, justDropped }
+function moveTab(tab, to) {
+  const from = tabs.indexOf(tab);
+  to = Math.max(0, Math.min(tabs.length - 1, to));
+  if (from < 0 || from === to) return;
+  tabs.splice(from, 1);
+  tabs.splice(to, 0, tab);
+  renderTabs();
+}
+$("#tabs").addEventListener("pointerdown", e => {
+  const el = e.target.closest(".tab");
+  if (!el || e.button !== 0 || e.target.closest(".tab-x")) return;
+  tabDrag = { tab: tabs[+el.dataset.i], el, startX: e.clientX, pointerId: e.pointerId, moved: false };
+});
+addEventListener("pointermove", e => {
+  const d = tabDrag;
+  if (!d || e.pointerId !== d.pointerId || d.justDropped) return;
+  let dx = e.clientX - d.startX;
+  if (!d.moved) {
+    if (Math.abs(dx) < 5) return;  // 살짝 흔들린 건 클릭
+    d.moved = true;
+    d.els = [...$("#tabs").querySelectorAll(".tab")];
+    d.rects = d.els.map(x => x.getBoundingClientRect());
+    d.from = d.to = d.els.indexOf(d.el);
+    d.el.classList.add("lifting");
+    $("#tabs").classList.add("sorting");
+  }
+  const r = d.rects, from = d.from;
+  // 보이는 움직임은 탭 줄 안으로만, 놓일 자리는 실제 마우스 위치로 계산
+  const shown = Math.max(r[0].left - r[from].left, Math.min(r[r.length - 1].right - r[from].right, dx));
+  d.el.style.transform = `translateX(${shown}px)`;
+  // 잡은 탭의 가운데가 옆 탭의 가운데를 넘으면 그 탭이 비켜남
+  const center = r[from].left + r[from].width / 2 + dx;
+  let to = from;
+  for (let i = from + 1; i < r.length; i++) if (center > r[i].left + r[i].width / 2) to = i;
+  for (let i = from - 1; i >= 0; i--) if (center < r[i].left + r[i].width / 2) to = i;
+  d.to = to;
+  const w = r[from].width;
+  d.els.forEach((x, i) => {
+    if (i === from) return;
+    const shift = from < i && i <= to ? -w : to <= i && i < from ? w : 0;
+    x.style.transform = shift ? `translateX(${shift}px)` : "";
+  });
+});
+function endTabDrag(e) {
+  const d = tabDrag;
+  if (!d || (e && e.pointerId !== d.pointerId)) return;
+  if (!d.moved) { tabDrag = null; return; }
+  d.justDropped = true;
+  d.moved = false;
+  $("#tabs").classList.remove("sorting");
+  const from = tabs.indexOf(d.tab);
+  tabs.splice(from, 1);
+  tabs.splice(d.to, 0, d.tab);
+  renderTabs();  // 지금 보이는 자리에서 새 자리로 미끄러져 들어감
+  setTimeout(() => { if (tabDrag === d) tabDrag = null; }, 80);  // 바로 뒤에 오는 click 은 무시
+}
+addEventListener("pointerup", endTabDrag);
+addEventListener("pointercancel", endTabDrag);
+$("#tabbar").addEventListener("dblclick", e => { if (!e.target.closest(".tab")) newTab(); });  // 빈 곳 더블클릭 = 새 탭
+function newTabMenu(x, y) {
+  showMenu(x, y, [
+    state.connected
+      ? { icon: "server", label: `서버 터미널 · ${state.label}`, kbd: "Ctrl+Shift+T", run: () => newTab("ssh") }
+      : { icon: "server", label: "서버에 연결…", run: () => MOBILE ? openDrawer() : $("#host").focus() },
+    ...(isAndroid() ? [] : [
+      { icon: "monitor", label: "명령 프롬프트 (내 PC)", run: () => newTab("cmd") },
+      { icon: "monitor", label: "PowerShell (내 PC)", run: () => newTab("powershell") },
+    ]),
+  ]);
+}
+$("#btnNewTab").onclick = e => { const r = e.currentTarget.getBoundingClientRect(); newTabMenu(r.left, r.bottom + 6); };
+$("#btnEmptySsh").onclick = () => newTab("ssh");
+$("#btnEmptyCmd").onclick = () => newTab("cmd");
+$("#btnEmptyPs").onclick = () => newTab("powershell");
+$("#btnEmptyConnect").onclick = () => openDrawer();
+new ResizeObserver(() => { if (activeTab) try { activeTab.fit.fit(); } catch {} }).observe($("#termStack"));
+
+function cycleTab(delta) {
+  if (tabs.length < 2) return;
+  activate(tabs[(tabs.indexOf(activeTab) + delta + tabs.length) % tabs.length]);
+}
+// 탭 단축키: 터미널이 키를 먹기 전에 먼저 가로챔
+addEventListener("keydown", e => {
+  if (!$("#modal").hidden) return;
+  const k = e.key.toLowerCase();
+  let handled = true;
+  if (e.ctrlKey && e.shiftKey && k === "t") newTab();
+  else if (e.ctrlKey && e.shiftKey && k === "f") openSearch();
+  else if (e.ctrlKey && !e.shiftKey && (e.key === "=" || e.key === "+")) setFontSize(state.fontSize + 1);
+  else if (e.ctrlKey && !e.shiftKey && e.key === "-") setFontSize(state.fontSize - 1);
+  else if (e.ctrlKey && !e.shiftKey && e.key === "0") setFontSize(14);
+  else if (e.ctrlKey && e.shiftKey && k === "w") { if (activeTab) closeTab(activeTab); }
+  else if (e.ctrlKey && e.key === "Tab") cycleTab(e.shiftKey ? -1 : 1);
+  else if (e.ctrlKey && e.shiftKey && e.key === "PageDown") { if (activeTab) moveTab(activeTab, tabs.indexOf(activeTab) + 1); }
+  else if (e.ctrlKey && e.shiftKey && e.key === "PageUp") { if (activeTab) moveTab(activeTab, tabs.indexOf(activeTab) - 1); }
+  else if (e.ctrlKey && e.key === "PageDown") cycleTab(1);
+  else if (e.ctrlKey && e.key === "PageUp") cycleTab(-1);
+  else if (e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key) && tabs[+e.key - 1]) activate(tabs[+e.key - 1]);
+  else handled = false;
+  if (handled) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+// 사용자가 친 글자 (자동 cd 는 취소, 스크롤은 맨 아래로)
+function typeInto(tab, data) {
+  if (tab.pendingCd) { clearTimeout(tab.pendingTimer); tab.pendingCd = null; }
+  tab.term.scrollToBottom();
+  sendInput(tab, data);
+}
+
+function copySelection(tab) {
+  if (!tab.term.hasSelection()) return false;
+  copyText(tab.term.getSelection());
+  tab.term.clearSelection();
+  return true;
+}
+
+async function pasteClipboard(tab) {
+  let text = "";
+  try { text = await api().clipboard_get(); } catch {}
+  if (!text) { try { text = await navigator.clipboard.readText(); } catch {} }
+  if (text) tab.term.paste(text);  // 줄바꿈 정리·괄호 붙여넣기 모드는 xterm 이 처리
+  tab.term.focus();
+}
+
+// 오른쪽 클릭: 선택한 글자가 있으면 복사, 없으면 붙여넣기 (Windows Terminal 과 같은 방식)
+$("#termStack").addEventListener("contextmenu", e => {
+  e.preventDefault();
+  if (!activeTab) return;
+  if (MOBILE) {  // 폰은 길게 누르기 -> 메뉴 (아래 타이머가 이미 열었으면 그대로)
+    if (performance.now() - (termPress.shownAt || 0) > 800) openTermMenu(e.clientX, e.clientY);
+    return;
+  }
+  if (!copySelection(activeTab)) pasteClipboard(activeTab);
+});
+
+// 폰: 터미널을 길게 누르면 붙여넣기·복사 메뉴. 바로 붙여넣지 않고 한 번 더 고르게 함 (잘못 눌러서 명령이 들어가지 않게)
+const termPress = { timer: null, shownAt: 0, fired: false };
+
+/* 폰: 구간 선택 복사. 길게 누른 곳의 낱말부터 선택하고, 손가락으로 그으면 그 범위로.
+   선택 끝(또는 처음) 근처에서 시작해 끌면 그쪽만 늘이거나 줄임. 위·아래 끝으로 끌면 화면이 따라 올라가고 내려감 */
+const sel = { tab: null, a: null, b: null, drag: null, scrollTimer: null };
+function cellAt(tab, x, y) {
+  const r = tab.el.querySelector(".xterm-screen").getBoundingClientRect();
+  const col = Math.max(0, Math.min(tab.term.cols - 1, Math.floor((x - r.left) / (r.width / tab.term.cols))));
+  const row = Math.max(0, Math.min(tab.term.rows - 1, Math.floor((y - r.top) / (r.height / tab.term.rows))));
+  return { col, row: row + tab.term.buffer.active.viewportY };
+}
+const cellIndex = (tab, p) => p.row * tab.term.cols + p.col;
+function paintSel() {
+  const t = sel.tab;
+  if (!t || !sel.a || !sel.b) return;
+  let [s, e] = [sel.a, sel.b];
+  if (cellIndex(t, e) < cellIndex(t, s)) [s, e] = [e, s];
+  t.term.select(s.col, s.row, cellIndex(t, e) - cellIndex(t, s) + 1);
+  const n = t.term.getSelection().length;
+  $("#selHint").innerHTML = n ? `<b>${n}자</b> 선택 · 끝을 끌면 늘어나요` : "복사할 부분을 손가락으로 <b>쭉 그으세요</b>";
+}
+function wordAround(tab, p) {
+  const line = tab.term.buffer.active.getLine(p.row)?.translateToString(false) || "";
+  const isWord = c => c && !/\s/.test(c);
+  if (!isWord(line[p.col])) return [p, p];
+  let a = p.col, b = p.col;
+  while (a > 0 && isWord(line[a - 1])) a--;
+  while (b < line.length - 1 && isWord(line[b + 1])) b++;
+  return [{ col: a, row: p.row }, { col: b, row: p.row }];
+}
+function startSelect(tab, x, y) {
+  sel.tab = tab;
+  [sel.a, sel.b] = wordAround(tab, cellAt(tab, x, y));
+  document.activeElement?.blur?.();  // 키보드를 내려서 화면을 넓게
+  $("#keyRow").hidden = true;
+  $("#selBar").hidden = false;
+  $("#termStack").classList.add("selecting");
+  $("#selLayer").hidden = false;
+  paintSel();
+}
+function endSelect() {
+  if (!sel.tab) return;
+  sel.tab.term.clearSelection();
+  sel.tab = sel.a = sel.b = sel.drag = null;
+  clearInterval(sel.scrollTimer);
+  $("#keyRow").hidden = false;
+  $("#selBar").hidden = true;
+  $("#termStack").classList.remove("selecting");
+  $("#selLayer").hidden = true;
+}
+$("#btnSelCancel").onclick = endSelect;
+$("#btnSelCopy").onclick = () => {
+  const t = sel.tab, text = t && t.term.getSelection();
+  if (!text) return toast("먼저 복사할 부분을 그어 주세요.");
+  copyText(text);
+  endSelect();
+  toast(`복사했어요 (${text.length}자). 붙여넣기는 터미널을 길게 누르세요.`);
+};
+if (MOBILE) {
+  const layer = $("#selLayer"), stack = $("#termStack");
+  const near = (p, q) => q && p.row === q.row && Math.abs(p.col - q.col) <= 2;
+  layer.addEventListener("touchstart", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sel.tab || e.touches.length !== 1) return;
+    const t = e.touches[0], p = cellAt(sel.tab, t.clientX, t.clientY);
+    let [s, en] = [sel.a, sel.b];
+    if (s && en && cellIndex(sel.tab, en) < cellIndex(sel.tab, s)) [s, en] = [en, s];
+    if (near(p, en)) sel.drag = { fixed: s };        // 끝을 끌기
+    else if (near(p, s)) sel.drag = { fixed: en };   // 처음을 끌기
+    else { sel.drag = { fixed: p }; sel.b = p; }
+    sel.a = sel.drag.fixed;
+    sel.drag.x = t.clientX;
+    sel.drag.y = t.clientY;
+    paintSel();
+  }, { passive: false });
+  layer.addEventListener("touchmove", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sel.tab || !sel.drag) return;
+    const t = e.touches[0];
+    sel.drag.x = t.clientX;
+    sel.drag.y = t.clientY;
+    sel.b = cellAt(sel.tab, t.clientX, t.clientY);
+    paintSel();
+    // 위·아래 끝 근처면 화면을 굴리면서 선택을 늘림
+    const r = stack.getBoundingClientRect(), edge = 28;
+    const dir = t.clientY < r.top + edge ? -1 : t.clientY > r.bottom - edge ? 1 : 0;
+    clearInterval(sel.scrollTimer);
+    if (dir) sel.scrollTimer = setInterval(() => {
+      if (!sel.tab || !sel.drag) return clearInterval(sel.scrollTimer);
+      sel.tab.term.scrollLines(dir);
+      sel.b = cellAt(sel.tab, sel.drag.x, sel.drag.y);
+      paintSel();
+    }, 90);
+  }, { passive: false });
+  const up = e => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearInterval(sel.scrollTimer);
+    sel.drag = null;
+  };
+  layer.addEventListener("touchend", up, { passive: false });
+  layer.addEventListener("touchcancel", up, { passive: false });
+  layer.addEventListener("contextmenu", e => e.preventDefault());
+}
+async function openTermMenu(x, y) {
+  const tab = activeTab;
+  if (!tab || !tab.id) return;
+  termPress.shownAt = performance.now();
+  try { window.AndroidBridge?.haptic?.(); } catch {}
+  let clip = "";
+  try { clip = (await api().clipboard_get()) || ""; } catch {}
+  const one = clip.replace(/\s+/g, " ").trim();
+  const lines = clip.split("\n").filter(l => l.trim()).length;
+  const items = [{
+    icon: "paste",
+    label: clip ? `붙여넣기  ·  ${one.length > 22 ? one.slice(0, 22) + "…" : one}` : "붙여넣기 (복사한 글자가 없어요)",
+    kbd: lines > 1 ? `${lines}줄` : "",
+    run: () => {
+      if (!clip) return toast("복사한 글자가 없어요.");
+      tab.term.paste(clip);  // 여러 줄은 엔터를 눌러야 실행돼요 (괄호 붙여넣기 모드는 xterm 이 처리)
+      tab.term.focus();
+    },
+  }];
+  if (tab.term.hasSelection()) items.push({ icon: "copy", label: "선택한 글자 복사", run: () => { copySelection(tab); toast("복사했어요."); } });
+  items.push({ icon: "copy", label: "구간 선택해서 복사", run: () => startSelect(tab, x, y) });
+  showMenu(x - 40, y - 150, items);  // 손가락에 가리지 않게 조금 위에
+}
+if (MOBILE) {
+  const stack = $("#termStack");
+  const cancel = () => { clearTimeout(termPress.timer); termPress.timer = null; };
+  stack.addEventListener("touchstart", e => {
+    cancel();
+    termPress.fired = false;
+    if (e.touches.length !== 1) return;  // 두 손가락 = 글자 크기
+    const t = e.touches[0];
+    termPress.x = t.clientX;
+    termPress.y = t.clientY;
+    termPress.timer = setTimeout(() => { termPress.timer = null; termPress.fired = true; openTermMenu(termPress.x, termPress.y); }, 450);
+  }, { passive: true });
+  stack.addEventListener("touchmove", e => {
+    const t = e.touches[0];
+    if (e.touches.length !== 1 || Math.hypot(t.clientX - termPress.x, t.clientY - termPress.y) > 10) cancel();  // 스크롤·밀기
+  }, { passive: true });
+  stack.addEventListener("touchend", e => {
+    cancel();
+    if (termPress.fired) e.preventDefault();  // 손을 뗄 때 클릭이 따로 생기지 않게
+  }, { passive: false });
+  stack.addEventListener("touchcancel", cancel);
+}
+
+// 키 입력은 탭별로 순서가 섞이지 않게 한 번에 하나씩 보냄
+function sendInput(tab, data) {
+  if (!tab || !tab.id || !isAlive(tab)) return;
+  tab.inbuf += data;
+  if (tab.sending) return;
+  tab.sending = true;
+  (async () => {
+    while (tab.inbuf) {
+      const chunk = tab.inbuf;
+      tab.inbuf = "";
+      try { await api().term_input(tab.id, chunk); } catch {}
+    }
+    tab.sending = false;
+  })();
+}
+
+function showBanner(text, buttonText, run) {
+  $("#termBannerText").textContent = text;
+  $("#btnReopen").textContent = buttonText;
+  $("#btnReopen").onclick = run;
+  $("#termBanner").hidden = false;
+}
+
+async function cdInTerminal(dir) {
+  let tab = activeTab && activeTab.kind === "ssh" ? activeTab : tabs.find(t => t.kind === "ssh" && isAlive(t));
+  if (tab) activate(tab);
+  else tab = await newTab("ssh");
+  if (!tab) return;
+  sendInput(tab, `cd ${shQuote(dir)}\r`);
+  tab.term.focus();
+}
+
+/* ================================================================ 파일 트리 */
+async function setRoot(path) {
+  if (path !== state.root) clearFilter(false);  // 다른 폴더로 가면 거르기는 지움
+  state.root = path;
+  state.selected.clear();
+  state.anchor = null;
+  const node = getNode(path);
+  node.open = true;
+  await loadDir(path);
+}
+
+function getNode(path) {
+  if (!state.nodes.has(path)) state.nodes.set(path, { entries: null, open: false, loading: false });
+  return state.nodes.get(path);
+}
+
+async function loadDir(path) {
+  const node = getNode(path);
+  node.loading = true;
+  render();
+  const r = await api().list_dir(path);
+  node.loading = false;
+  if (r.error) {
+    if (r.disconnected) return onDisconnected();
+    node.entries = node.entries || [];
+    if (path === state.root && !node.entries.length) node.error = r.error;
+    toast(r.error, { error: true });
+  } else {
+    node.entries = r.entries;
+    node.error = null;
+  }
+  render();
+}
+
+async function refreshDir(dir) {
+  const targets = [...state.nodes.entries()].filter(([p, n]) => n.entries && (p === dir || dir == null) && (n.open || p === state.root));
+  for (const [p] of targets) await loadDir(p);
+}
+
+function visible(entries) {
+  return state.showHidden ? entries : entries.filter(e => !e.name.startsWith("."));
+}
+
+// 거르기: 이름에 글자가 들어 있거나, 펼쳐 둔 폴더 안에 그런 항목이 있으면 보여줌
+function makeMatcher() {
+  const q = state.filter;
+  if (!q) return null;
+  const memo = new Map();
+  const match = e => {
+    if (memo.has(e.path)) return memo.get(e.path);
+    let ok = e.name.toLowerCase().includes(q);
+    const child = e.dir ? state.nodes.get(e.path) : null;
+    if (!ok && child && child.open && child.entries) ok = visible(child.entries).some(match);
+    memo.set(e.path, ok);
+    return ok;
+  };
+  return match;
+}
+function nameHtml(name) {
+  const i = state.filter ? name.toLowerCase().indexOf(state.filter) : -1;
+  if (i < 0) return esc(name);
+  return esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + state.filter.length)) + "</mark>" + esc(name.slice(i + state.filter.length));
+}
+
+function render() {
+  const tree = $("#tree");
+  state.index.clear();
+  state.order = [];
+  renderCrumbs();
+  const root = state.nodes.get(state.root);
+  if (!root || (!root.entries && root.loading)) { tree.innerHTML = `<div class="empty">불러오는 중…</div>`; return; }
+  if (root.error) { tree.innerHTML = `<div class="empty">${esc(root.error)}</div>`; return; }
+  const out = [];
+  const match = makeMatcher();
+  let hits = 0;
+  const walk = (dir, depth) => {
+    const node = state.nodes.get(dir);
+    if (!node || !node.entries) return;
+    const list = match ? visible(node.entries).filter(match) : visible(node.entries);
+    if (match) hits += list.filter(e => e.name.toLowerCase().includes(state.filter)).length;
+    if (!list.length && depth > 0 && !match) out.push(`<div class="row note" style="--d:${depth}"><span class="chev"></span>비어 있음</div>`);
+    for (const e of list) {
+      state.index.set(e.path, e);
+      state.order.push(e.path);
+      const child = e.dir ? state.nodes.get(e.path) : null;
+      const open = !!(child && child.open);
+      const cls = ["row", e.dir ? "dir" : "", open ? "open" : "", state.selected.has(e.path) ? "sel" : "",
+                   state.dropDir === e.path ? "drop" : ""].join(" ");
+      const ico = e.dir ? `<span style="color:var(--folder)">${icon("folder", 16)}</span>`
+                        : `<span style="color:${fileColor(e.name)}">${icon("file", 16)}</span>`;
+      out.push(`<div class="${cls}" style="--d:${depth}" data-path="${esc(e.path)}" draggable="true"
+                 title="${esc(e.name)}${e.dir ? "" : " · " + fmtSize(e.size)}${e.mtime ? " · " + fmtDate(e.mtime) : ""}">
+          <span class="chev">${e.dir ? icon("chev", 14) : ""}</span>${ico}
+          <span class="name">${nameHtml(e.name)}</span>${e.link ? '<span class="link">링크</span>' : ""}
+          <span class="meta">${e.dir ? "" : fmtSize(e.size)}</span></div>`);
+      if (open) {
+        if (child.loading && !child.entries) out.push(`<div class="row note" style="--d:${depth + 1}"><span class="chev"></span>불러오는 중…</div>`);
+        else walk(e.path, depth + 1);
+      }
+    }
+  };
+  walk(state.root, 0);
+  $("#filterCount").textContent = match ? (hits ? `${hits}개` : "없음") : "";
+  tree.innerHTML = out.length ? out.join("") : match
+    ? `<div class="empty">'${esc(state.filter)}'이(가) 들어간 항목이 없어요</div>`
+    : `<div class="empty">빈 폴더예요<br>윈도우 탐색기에서 파일을 끌어다 놓으면 여기로 올라가요</div>`;
+  tree.classList.toggle("drop-root", state.dropDir === state.root);
+}
+
+function renderCrumbs() {
+  const nav = $("#crumbs");
+  if (!state.root) { nav.innerHTML = ""; return; }
+  const home = state.home;
+  const inHome = home && (state.root === home || state.root.startsWith(home + "/"));
+  const parts = [];
+  if (inHome) {
+    parts.push({ label: "~", path: home });
+    let acc = home;
+    state.root.slice(home.length).split("/").filter(Boolean).forEach(p => { acc += "/" + p; parts.push({ label: p, path: acc }); });
+  } else {
+    parts.push({ label: "/", path: "/" });
+    let acc = "";
+    state.root.split("/").filter(Boolean).forEach(p => { acc += "/" + p; parts.push({ label: p, path: acc }); });
+  }
+  nav.innerHTML = parts.map((p, i) => `${i > 0 && !(i === 1 && p.label && parts[0].label === "/") ? '<span class="crumb-sep">/</span>' : ""}<button class="crumb${i === parts.length - 1 ? " last" : ""}" data-p="${esc(p.path)}" title="${esc(p.path)}">${esc(p.label)}</button>`).join("");
+  nav.scrollLeft = nav.scrollWidth;
+}
+
+async function toggleDir(path) {
+  const node = getNode(path);
+  node.open = !node.open;
+  if (node.open && !node.entries) await loadDir(path);
+  else render();
+}
+
+function selectOnly(path) {
+  state.selected = new Set([path]);
+  state.anchor = path;
+  paintSelection();
+}
+
+// 선택 표시만 바꿈 (트리를 다시 그리면 더블클릭/끌어다 놓기가 끊기므로)
+function paintSelection() {
+  tree.querySelectorAll(".row[data-path]").forEach(r => r.classList.toggle("sel", state.selected.has(r.dataset.path)));
+}
+
+function selectedEntries() {
+  return [...state.selected].map(p => state.index.get(p)).filter(Boolean);
+}
+
+function dirOfSelection() {
+  const sel = selectedEntries();
+  if (sel.length === 1) return sel[0].dir ? sel[0].path : parentOf(sel[0].path);
+  return state.root;
+}
+
+/* ---------- 파일 작업 ---------- */
+// 서버 파일을 내 PC 프로그램으로 열기. 저장하면 파이썬이 알아채서 서버에 다시 올림 (edit_saved 알림)
+async function openRemote(entries, choose = false) {
+  entries = entries.filter(e => !e.dir).slice(0, 10);
+  if (!entries.length) return;
+  const big = entries.filter(e => e.size > 50 * 1024 * 1024);
+  if (big.length) {
+    const ok = await modal({
+      title: "큰 파일이에요",
+      body: `<p>${esc(big[0].name)} (${fmtSize(big[0].size)})를 받아서 열어요. 시간이 좀 걸릴 수 있어요.</p>`,
+      ok: "열기",
+    });
+    if (!ok) return;
+  }
+  for (const e of entries) {
+    const r = await api().open_remote(e.path, choose);
+    if (r.error) {
+      toast(`'${e.name}'을(를) 열 수 없어요: ${r.error}`, { error: true });
+      if (r.disconnected) onDisconnected();
+      return;
+    }
+  }
+  if (isAndroid()) return toast(entries.length === 1 ? `'${entries[0].name}'을(를) 받아서 열었어요 (다운로드/SSH Lite).`
+                                                    : `${entries.length}개 파일을 받아서 열었어요 (다운로드/SSH Lite).`);
+  toast(entries.length === 1 ? `'${entries[0].name}'을(를) 열었어요. 저장하면 서버에 자동으로 올라가요.`
+                             : `${entries.length}개 파일을 열었어요. 저장하면 서버에 자동으로 올라가요.`);
+}
+
+async function download(entries, ask = false) {
+  if (!entries.length) return;
+  let dir = null;
+  if (ask) {
+    dir = await api().pick_folder();
+    if (!dir) return;
+  }
+  await api().download(entries.map(e => ({ path: e.path, dir: e.dir })), dir);
+  showTransferQueued("↓ 다운로드");
+}
+
+async function uploadTo(paths, dir) {
+  if (!paths.length) return;
+  const names = await api().basenames(paths);
+  const dup = await api().existing_names(dir, names);
+  if (dup.length) {
+    const ok = await modal({
+      title: "같은 이름이 있어요",
+      body: `<p>${esc(baseName(dir))} 폴더에 이미 있는 항목이에요. 덮어쓸까요?</p>${listHtml(dup)}`,
+      ok: "덮어쓰기", danger: true,
+    });
+    if (!ok) return;
+  }
+  await api().upload(paths, dir);
+  showTransferQueued("↑ 업로드");
+}
+
+async function pickAndUpload() {
+  const dir = dirOfSelection();
+  const paths = await api().pick_files();
+  await uploadTo(paths, dir);
+}
+
+async function newFolder(parent = dirOfSelection()) {
+  const name = await modal({ title: "새 폴더", body: `<p>${esc(parent)} 안에 만들어요.</p>`, input: {}, ok: "만들기" });
+  if (!name || !name.trim()) return;
+  const r = await api().mkdir(parent, name.trim());
+  if (r.error) return toast(r.error, { error: true });
+  const node = getNode(parent);
+  node.open = true;
+  await loadDir(parent);
+}
+
+async function renameEntry(e) {
+  const name = await modal({ title: "이름 바꾸기", input: { value: e.name, selectStem: !e.dir }, ok: "바꾸기" });
+  if (!name || !name.trim() || name.trim() === e.name) return;
+  const r = await api().rename(e.path, name.trim());
+  if (r.error) return toast(r.error, { error: true });
+  await loadDir(parentOf(e.path));
+}
+
+async function deleteEntries(entries) {
+  if (!entries.length) return;
+  const ok = await modal({
+    title: entries.length === 1 ? `'${entries[0].name}'을(를) 삭제할까요?` : `${entries.length}개 항목을 삭제할까요?`,
+    body: `<p>서버에서 바로 지워지고 되돌릴 수 없어요. 폴더는 안의 내용까지 지워져요.</p>${listHtml(entries.map(e => e.name + (e.dir ? "/" : "")))}`,
+    ok: "삭제", danger: true,
+  });
+  if (!ok) return;
+  const r = await api().delete(entries.map(e => ({ path: e.path, dir: e.dir, link: e.link })));
+  if (r.error) toast(r.error, { error: true });
+  const parents = new Set(entries.map(e => parentOf(e.path)));
+  entries.forEach(e => state.selected.delete(e.path));
+  for (const p of parents) await loadDir(p);
+}
+
+async function moveEntries(paths, targetDir) {
+  paths = paths.filter(p => parentOf(p) !== targetDir && targetDir !== p && !targetDir.startsWith(p + "/"));
+  if (!paths.length) return;
+  const r = await api().move(paths, targetDir);
+  if (r.error) toast(r.error, { error: true });
+  for (const p of new Set([...paths.map(parentOf), targetDir])) if (state.nodes.get(p)?.entries) await loadDir(p);
+}
+
+function openContextMenu(x, y, entry) {
+  const sel = selectedEntries();
+  const items = [];
+  if (entry) {
+    const files = sel.filter(x => !x.dir);
+    if (files.length) {
+      if (isAndroid()) items.push({ icon: "open", label: "폰에서 열기", kbd: "두 번 누르기", run: () => openRemote(files) });
+      else items.push({ icon: "edit2", label: "열기 (내 PC에서 편집)", kbd: "더블클릭", run: () => openRemote(files) });
+      if (files.length === 1 && !isAndroid()) items.push({ icon: "open", label: "다른 프로그램으로 열기…", run: () => openRemote(files, true) });
+      items.push("-");
+    }
+    items.push({ icon: "download", label: sel.length > 1 ? `${sel.length}개 다운로드` : "다운로드", run: () => download(sel) });
+    if (!isAndroid()) items.push({ icon: "open", label: "다른 위치에 다운로드…", run: () => download(sel, true) });
+    items.push("-");
+    if (sel.length === 1 && entry.dir) {
+      items.push({ icon: "terminal", label: "터미널에서 이 폴더로 이동", run: () => cdInTerminal(entry.path) });
+      items.push({ icon: "target", label: "이 폴더를 맨 위로 보기", run: () => setRoot(entry.path) });
+    }
+    items.push({ icon: "upload", label: "여기에 업로드…", run: () => pickAndUpload() });
+    items.push({ icon: "folderPlus", label: "새 폴더", run: () => newFolder() });
+    if (sel.length === 1) items.push({ icon: "edit", label: "이름 바꾸기", kbd: "F2", run: () => renameEntry(entry) });
+    items.push({ icon: "copy", label: "경로 복사", run: () => copyText(sel.map(e => e.path).join("\n")) });
+    items.push("-");
+    items.push({ icon: "trash", label: "삭제", kbd: "Del", danger: true, run: () => deleteEntries(sel) });
+  } else {
+    items.push({ icon: "upload", label: "여기에 업로드…", run: () => pickAndUpload() });
+    items.push({ icon: "folderPlus", label: "새 폴더", run: () => newFolder(state.root) });
+    items.push({ icon: "terminal", label: "터미널에서 이 폴더로 이동", run: () => cdInTerminal(state.root) });
+    items.push({ icon: "refresh", label: "새로고침", kbd: "F5", run: () => refreshDir() });
+  }
+  showMenu(x, y, items);
+}
+
+/* ---------- 트리 마우스 / 키보드 ---------- */
+const tree = $("#tree");
+const rowPath = el => el?.closest(".row[data-path]")?.dataset.path;
+
+tree.addEventListener("click", e => {
+  const path = rowPath(e.target);
+  if (!path) { if (e.target === tree) { state.selected.clear(); paintSelection(); } return; }
+  const entry = state.index.get(path);
+  if (e.target.closest(".chev") && entry.dir) return toggleDir(path);
+  if (MOBILE) {
+    const again = state.selected.size === 1 && state.selected.has(path);
+    selectOnly(path);
+    if (entry.dir) toggleDir(path);
+    else if (again) openRemote([entry]);
+    return;
+  }
+  if (e.ctrlKey || e.metaKey) {
+    state.selected.has(path) ? state.selected.delete(path) : state.selected.add(path);
+    state.anchor = path;
+    paintSelection();
+  } else if (e.shiftKey && state.anchor) {
+    const a = state.order.indexOf(state.anchor), b = state.order.indexOf(path);
+    state.selected = new Set(state.order.slice(Math.min(a, b), Math.max(a, b) + 1));
+    paintSelection();
+  } else selectOnly(path);
+});
+tree.addEventListener("dblclick", e => {
+  if (MOBILE) return;  // 폰은 위의 누르기로 처리
+  const entry = state.index.get(rowPath(e.target));
+  if (!entry || e.target.closest(".chev")) return;
+  entry.dir ? toggleDir(entry.path) : openRemote([entry]);
+});
+tree.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const path = rowPath(e.target);
+  if (path && !state.selected.has(path)) selectOnly(path);
+  if (!path) { state.selected.clear(); paintSelection(); }
+  openContextMenu(e.clientX, e.clientY, path ? state.index.get(path) : null);
+});
+tree.addEventListener("keydown", e => {
+  const sel = selectedEntries();
+  const cur = state.anchor && state.index.get(state.anchor);
+  const move = delta => {
+    const i = Math.max(0, Math.min(state.order.length - 1, state.order.indexOf(state.anchor) + delta));
+    if (state.order[i]) {
+      selectOnly(state.order[i]);
+      tree.querySelector(`.row[data-path="${CSS.escape(state.order[i])}"]`)?.scrollIntoView({ block: "nearest" });
+    }
+  };
+  if (e.key === "ArrowDown") { e.preventDefault(); move(state.anchor ? 1 : 0); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+  else if (e.key === "ArrowRight" && cur?.dir && !getNode(cur.path).open) toggleDir(cur.path);
+  else if (e.key === "ArrowLeft" && cur) {
+    if (cur.dir && getNode(cur.path).open) toggleDir(cur.path);
+    else if (state.index.has(parentOf(cur.path))) selectOnly(parentOf(cur.path));
+  }
+  else if (e.key === "Enter" && cur) cur.dir ? toggleDir(cur.path) : openRemote(sel.filter(x => !x.dir));
+  else if (e.key === "Delete") deleteEntries(sel);
+  else if (e.key === "F2" && sel.length === 1) renameEntry(sel[0]);
+  else if (e.key === "Backspace") { e.preventDefault(); goUp(); }
+  else if (e.key === "a" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); state.selected = new Set(state.order); paintSelection(); }
+  else if (e.key === "Escape" && state.filter) clearFilter();
+  else if (e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    e.preventDefault();
+    openFilter(e.key);  // 트리에서 글자를 치면 바로 거르기
+  }
+});
+$("#crumbs").addEventListener("click", e => { const b = e.target.closest(".crumb"); if (b) setRoot(b.dataset.p); });
+
+function goUp() { if (state.root && state.root !== "/") setRoot(parentOf(state.root)); }
+$("#btnUp").onclick = goUp;
+
+$("#btnUpload").onclick = pickAndUpload;
+
+function toggleFollow() {
+  state.follow = !state.follow;
+  api().save_ui({ follow_cwd: state.follow });
+  toast(state.follow ? "트리가 서버 탭의 현재 폴더를 따라가요." : "트리 따라가기를 껐어요.", { timeout: 2000 });
+  if (state.follow) followTab(activeTab);
+  updateStatus();
+}
+function toggleHidden() {
+  state.showHidden = !state.showHidden;
+  api().save_ui({ show_hidden: state.showHidden });
+  render();
+}
+$("#btnSideMenu").onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  showMenu(r.left, r.bottom + 6, [
+    { icon: "folderPlus", label: "새 폴더", run: () => newFolder() },
+    { icon: "refresh", label: "새로고침", kbd: "F5", run: () => refreshDir() },
+    "-",
+    { icon: state.showHidden ? "check" : "eye", on: state.showHidden, label: "숨김 파일 보기", run: toggleHidden },
+    { icon: state.follow ? "check" : "link", on: state.follow, label: "터미널 폴더 따라가기", run: toggleFollow },
+  ]);
+};
+$("#sbFollow").onclick = toggleFollow;
+$("#sbFont").onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  showMenu(r.right - 220, r.top - 120, [
+    { icon: "plus", label: "글자 크게", kbd: "Ctrl+=", run: () => setFontSize(state.fontSize + 1) },
+    { icon: "chevDown", label: "글자 작게", kbd: "Ctrl+-", run: () => setFontSize(state.fontSize - 1) },
+    { icon: "refresh", label: "원래 크기", kbd: "Ctrl+0", run: () => setFontSize(14) },
+  ]);
+};
+
+// 상태 줄: 지금 탭이 어디인지 · 터미널 크기 · 글자 크기
+function updateStatus() {
+  const where = $("#sbWhere");
+  const t = activeTab;
+  let text = "열린 터미널 없음", kind = "";
+  if (t && t.kind === "ssh") {
+    kind = "ssh";
+    text = isAlive(t) ? `${state.label}${t.cwd ? "  ·  " + t.cwd : ""}` : "서버 연결 끊김";
+    if (!isAlive(t)) kind = "lost";
+  } else if (t) {
+    kind = "local";
+    text = `내 PC  ·  ${t.kind === "powershell" ? "PowerShell" : "명령 프롬프트"}`;
+  }
+  where.className = "sb-where " + kind;
+  $("#sbWhereText").textContent = text;
+  $("#sbFont").textContent = `${state.fontSize}px`;
+  $("#sbFont").title = `글자 크기 ${state.fontSize}px${t ? ` · 터미널 ${t.term.cols}×${t.term.rows}` : ""}  (Ctrl+휠, Ctrl+0 원래대로)`;
+  const f = $("#sbFollow");
+  f.hidden = !state.connected;
+  f.classList.toggle("on", state.follow);
+  f.title = `트리가 서버 탭의 현재 폴더 따라가기: ${state.follow ? "켜짐" : "꺼짐"} (눌러서 바꾸기)`;
+}
+addEventListener("keydown", e => {
+  if (e.key === "F5") { e.preventDefault(); if (state.connected) refreshDir(); }
+});
+
+/* ---------- 끌어다 놓기 ---------- */
+// 탐색기 -> 앱: 놓을 폴더를 여기서 정해두고, 실제 파일 경로는 파이썬이 'dropped' 이벤트로 알려줌
+// 앱 안에서: 트리 항목을 다른 폴더 위에 놓으면 이동
+let dragInternal = null, lastDropDir = null;
+const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes("Files");
+
+tree.addEventListener("dragstart", e => {
+  const path = rowPath(e.target);
+  if (!path) return;
+  if (!state.selected.has(path)) selectOnly(path);
+  dragInternal = [...state.selected];
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", dragInternal.join("\n"));
+});
+tree.addEventListener("dragend", () => { dragInternal = null; setDropDir(null); });
+
+function dropDirFor(target) {
+  if (!state.connected || !state.root) return null;
+  const path = rowPath(target);
+  if (path) {
+    const entry = state.index.get(path);
+    return entry.dir ? entry.path : parentOf(entry.path);
+  }
+  return state.root;  // 빈 곳이나 터미널 위에 놓으면 지금 보고 있는 맨 위 폴더로
+}
+function setDropDir(dir) {
+  if (state.dropDir === dir) return;
+  state.dropDir = dir;
+  $("#dropHint").hidden = !dir || !!dragInternal;
+  if (dir) $("#dropHintPath").textContent = dir;
+  tree.querySelectorAll(".row.drop").forEach(r => r.classList.remove("drop"));
+  if (dir && dir !== state.root) tree.querySelector(`.row[data-path="${CSS.escape(dir)}"]`)?.classList.add("drop");
+  tree.classList.toggle("drop-root", dir === state.root);
+}
+document.addEventListener("dragover", e => {
+  if (!isFileDrag(e) && !dragInternal) return;
+  e.preventDefault();
+  const dir = dropDirFor(e.target);
+  e.dataTransfer.dropEffect = !dir ? "none" : dragInternal ? "move" : "copy";
+  setDropDir(dir);
+});
+document.addEventListener("dragleave", e => { if (!e.relatedTarget) setDropDir(null); });
+document.addEventListener("drop", e => {
+  e.preventDefault();
+  const dir = state.dropDir;
+  setDropDir(null);
+  if (dragInternal) { const paths = dragInternal; dragInternal = null; if (dir) moveEntries(paths, dir); return; }
+  lastDropDir = dir;
+}, true);
+
+/* ---------- 트리 거르기 ---------- */
+function openFilter(initial) {
+  const input = $("#filterInput");
+  if (initial != null) input.value = (state.filter ? input.value : "") + initial;
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+  applyFilter();
+}
+function applyFilter() {
+  state.filter = $("#filterInput").value.trim().toLowerCase();
+  $("#btnFilterClose").hidden = !$("#filterInput").value;
+  render();
+}
+function clearFilter(redraw = true) {
+  const had = !!state.filter || !!$("#filterInput").value;
+  state.filter = "";
+  $("#filterInput").value = "";
+  $("#btnFilterClose").hidden = true;
+  if (redraw && had) render();
+  if (redraw) $("#tree").focus();
+}
+$("#filterInput").addEventListener("input", applyFilter);
+$("#filterInput").addEventListener("keydown", e => {
+  if (e.key === "Escape") { e.preventDefault(); clearFilter(); }
+  else if (e.key === "ArrowDown" || e.key === "Enter") {
+    // 첫 번째로 맞는 항목을 골라서 트리로 (Enter 는 파일이면 바로 열기)
+    e.preventDefault();
+    const first = state.order.find(p => state.index.get(p).name.toLowerCase().includes(state.filter)) || state.order[0];
+    if (!first) return;
+    selectOnly(first);
+    $("#tree").focus();
+    const entry = state.index.get(first);
+    if (e.key === "Enter" && !entry.dir) openRemote([entry]);
+  }
+});
+$("#btnFilterClose").onclick = () => clearFilter();
+
+/* ---------- 서버 사용량 (상태 줄) ---------- */
+let statsTimer = null, statsGen = 0, lastStats = null;
+function startStats() {
+  stopStats();
+  if (state.cfg.server_stats === false) return;
+  const gen = ++statsGen;
+  const box = $("#sbStats");
+  box.innerHTML = '<span class="stat">사용량 읽는 중…</span>';
+  box.hidden = false;
+  const tick = async (next) => {
+    if (gen !== statsGen || !state.connected) return;
+    let r;
+    try { r = await api().server_stats(); } catch (e) { r = { error: String(e) }; }
+    if (gen !== statsGen || !state.connected) return;
+    showStats(r);
+    // 못 읽으면 30초 뒤 다시 (서버가 잠깐 바빴을 수 있음)
+    statsTimer = setTimeout(() => tick(10000), r.error ? 30000 : next);
+  };
+  tick(2500);  // CPU 는 두 번째부터 나오는 서버가 있어서 처음엔 금방 한 번 더
+}
+function stopStats() {
+  statsGen++;
+  clearTimeout(statsTimer);
+  statsTimer = null;
+  $("#sbStats").hidden = true;
+  $("#sbUptime").hidden = true;
+}
+function showStats(r) {
+  lastStats = r;
+  const box = $("#sbStats");
+  if (r.error) {
+    box.innerHTML = '<button class="stat stat-err" id="btnStatsErr" title="눌러서 이유 보기">사용량 ⚠</button>';
+    $("#btnStatsErr").onclick = showStatsError;
+    box.hidden = false;
+    return;
+  }
+  const level = pct => pct >= 90 ? " hot" : pct >= 75 ? " warm" : "";
+  const meter = pct => `<span class="meter"><i style="width:${pct || 0}%"></i></span>`;
+  const html = [], tips = [];
+  html.push(`<span class="stat${level(r.cpu)}" title="${r.cpu == null ? "CPU 재는 중" : `CPU ${r.cpu}%`}"><span class="k">CPU</span> <span class="v">${r.cpu == null ? "…" : r.cpu + "%"}</span>${meter(r.cpu)}</span>`);
+  if (r.mem_total) {
+    const pct = Math.round(r.mem_used / r.mem_total * 100), tip = `메모리 ${fmtSize(r.mem_used)} / ${fmtSize(r.mem_total)}`;
+    tips.push(tip);
+    html.push(`<span class="stat${level(pct)}" title="${esc(tip)}"><span class="k">메모리</span> <span class="v">${pct}%</span>${meter(pct)}</span>`);
+  }
+  if (r.disk_total) {
+    const tip = `디스크 ${fmtSize(r.disk_used)} / ${fmtSize(r.disk_total)} (${r.mount})`;
+    tips.push(tip);
+    html.push(`<span class="stat${level(r.disk_pct)}" title="${esc(tip)}"><span class="k">디스크</span> <span class="v">${r.disk_pct}%</span>${meter(r.disk_pct)}</span>`);
+  }
+  if (r.net_in != null) {
+    html.push(`<span class="stat opt" title="서버 네트워크: 받는 속도 / 보내는 속도"><span class="net-down">↓</span> <span class="v">${fmtSize(r.net_in)}/s</span> <span class="net-up">↑</span> <span class="v">${fmtSize(r.net_out)}/s</span></span>`);
+  }
+  const up = $("#sbUptime");
+  up.textContent = r.uptime != null ? `가동 ${fmtUptime(r.uptime)}` : "";
+  up.title = "서버가 켜진 지";
+  up.hidden = r.uptime == null;
+  box.innerHTML = html.join("");
+  box.title = tips.join("  ·  ");
+  box.hidden = false;
+}
+function fmtUptime(sec) {
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+  return d ? `${d}일 ${h}시간` : h ? `${h}시간 ${m}분` : `${m}분`;
+}
+function showStatsError() {
+  const r = lastStats || {};
+  modal({
+    title: "서버 사용량을 읽지 못했어요",
+    body: `<p>${esc(r.error || "")}</p>
+           <p>서버가 보낸 내용이에요. 이 화면을 캡처해서 보내주시면 고칠 수 있어요.</p>
+           <div class="list" style="white-space: pre-wrap; max-height: 260px">${esc(r.detail || "(아무것도 오지 않았어요)")}</div>`,
+    ok: "다시 시도", cancel: "닫기",
+  }).then(ok => { if (ok) startStats(); });
+}
+// ⋯ 메뉴 '서버 사용량 지금 확인': 상태 줄과 상관없이 서버 응답과 화면 상태를 그대로 보여줌
+async function checkStatsNow() {
+  let r;
+  try { r = await api().server_stats(true); } catch (e) { r = { error: "앱 내부 호출 실패: " + e }; }
+  const box = $("#sbStats"), bar = $(".statusbar");
+  const rb = box.getBoundingClientRect(), rs = bar.getBoundingClientRect();
+  const { detail, ...nums } = r || {};
+  const info = [
+    `버전 ${state.cfg.version || "?"}`,
+    `결과 ${JSON.stringify(nums)}`,
+    `상태 줄: 표시 설정 ${state.cfg.server_stats !== false ? "켜짐" : "꺼짐"} · 연결 ${state.connected} · 숨김 ${box.hidden} · 타이머 ${statsTimer ? "있음" : "없음"}`,
+    `상태 줄 칸 위치 x=${Math.round(rb.left)} y=${Math.round(rb.top)} 폭=${Math.round(rb.width)} (상태 줄 y=${Math.round(rs.top)} 폭=${Math.round(rs.width)}, 창 ${innerWidth}×${innerHeight})`,
+    `상태 줄 칸 내용: ${box.textContent.trim().replace(/\s+/g, " ") || "(비어 있음)"}`,
+  ].join("\n");
+  if (!r.error) showStats(r);
+  const ok = await modal({
+    title: r.error ? "서버 사용량을 읽지 못했어요" : "서버 사용량을 읽었어요",
+    body: `<p>${esc(r.error || "아래 내용이 상태 줄에 보여야 해요. 안 보이면 이 화면을 캡처해서 보내주세요.")}</p>
+           <div class="list" style="white-space: pre-wrap; max-height: 300px; user-select: text">${esc(info + "\n\n[서버가 보낸 내용]\n" + (detail || "(아무것도 오지 않았어요)"))}</div>`,
+    ok: "상태 줄 다시 시작", cancel: "닫기",
+  });
+  if (ok) startStats();
+}
+async function toggleStats() {
+  state.cfg.server_stats = state.cfg.server_stats === false;
+  api().save_ui({ server_stats: state.cfg.server_stats });
+  if (state.cfg.server_stats) startStats(); else stopStats();
+}
+
+// 전송 속도: 최근 속도에 무게를 두고 부드럽게 (숫자가 너무 튀지 않게)
+function fmtEta(sec) {
+  if (!isFinite(sec) || sec < 0) return "";
+  if (sec < 60) return `${Math.max(1, Math.round(sec))}초 남음`;
+  if (sec < 3600) return `${Math.round(sec / 60)}분 남음`;
+  return `${Math.floor(sec / 3600)}시간 ${Math.round((sec % 3600) / 60)}분 남음`;
+}
+
+/* ---------- 전송 표시 ---------- */
+function showTransferQueued(kind) {
+  if (state.transfer) return;
+  state.transfer = { kind };
+  $("#transfer").hidden = false;
+  $(".statusbar").classList.add("busy");
+  $("#tKind").textContent = kind;
+  $("#tName").textContent = "준비 중…";
+  $("#tBar").style.width = "0%";
+  $("#tCount").textContent = "";
+  $("#tBytes").textContent = "";
+  $("#tSpeed").textContent = "";
+}
+function hideTransfer() {
+  state.transfer = null;
+  $("#transfer").hidden = true;
+  $(".statusbar").classList.remove("busy");
+}
+$("#btnCancel").onclick = () => api().cancel_transfers();
+
+/* ================================================================ 파이썬에서 오는 알림 */
+window.app = {
+  onEvent({ type, data }) {
+    switch (type) {
+      case "term": {
+        const tab = tabs.find(t => t.id === data.id);
+        if (!tab) break;
+        tab.term.write(data.data);
+        if (tab.pendingCd) {
+          clearTimeout(tab.pendingTimer);
+          tab.pendingTimer = setTimeout(() => { sendInput(tab, tab.pendingCd); tab.pendingCd = null; }, 300);
+        }
+        if (tab !== activeTab && !tab.unread) { tab.unread = true; renderTabs(); }
+        break;
+      }
+      case "term_closed": {  // exit 등으로 셸이 끝나면 그 탭을 닫음
+        const tab = tabs.find(t => t.id === data.id);
+        if (tab) removeTab(tab);
+        break;
+      }
+      case "disconnected":
+        onDisconnected();
+        break;
+      case "transfer": {
+        const kind = data.kind === "upload" ? "↑ 업로드" : "↓ 다운로드";
+        if (!state.transfer) showTransferQueued(kind);
+        $("#tKind").textContent = kind;
+        $("#tName").textContent = data.label;
+        const pct = data.all ? (data.done / data.all) * 100 : 100;  // 이번 전송 전체 기준
+        $("#tBar").style.width = pct.toFixed(1) + "%";
+        $("#tBytes").textContent = `${Math.floor(pct)}%  ·  ${fmtSize(data.done)} / ${fmtSize(data.all)}`;
+        const t = state.transfer, now = performance.now() / 1000;
+        if (t.at == null || data.done < t.doneAt) { t.at = now; t.doneAt = data.done; t.speed = 0; t.start = now; }
+        else if (now - t.at >= 0.4) {
+          const inst = (data.done - t.doneAt) / (now - t.at);
+          t.speed = t.speed ? t.speed * 0.7 + inst * 0.3 : inst;
+          t.at = now;
+          t.doneAt = data.done;
+        }
+        $("#tSpeed").textContent = t.speed > 0
+          ? `${fmtSize(t.speed)}/s  ·  ${fmtEta((data.all - data.done) / t.speed)}` : "속도 재는 중…";
+        $("#tCount").textContent = (data.total > 1 ? `${data.index}/${data.total}개` : "") + (data.queued ? `  ·  대기 ${data.queued}` : "");
+        break;
+      }
+      case "transfer_done":
+        hideTransfer();
+        if (data.kind === "upload") {
+          toast(`${data.count}개 파일을 올렸어요 → ${baseName(data.dir)}`);
+          refreshDir(data.dir);
+        } else {
+          toast(`${data.count}개 파일을 받았어요`, { action: { label: "폴더 열기", run: () => api().show_in_explorer(data.first) } });
+        }
+        break;
+      case "transfer_cancelled":
+        hideTransfer();
+        toast("전송을 취소했어요.");
+        if (data.kind === "upload") refreshDir(data.dir);
+        break;
+      case "transfer_error":
+        hideTransfer();
+        toast(data.error, { error: true });
+        if (data.disconnected) onDisconnected();
+        else if (data.kind === "upload") refreshDir(data.dir);
+        break;
+      case "edit_saved":
+        toast(`'${data.name}' 저장 → 서버에 올렸어요.`, { timeout: 2500 });
+        refreshDir(parentOf(data.remote));
+        break;
+      case "edit_waiting":
+        toast(`'${data.name}' 저장한 내용은 서버에 다시 연결되면 올릴게요.`);
+        break;
+      case "edit_error":
+        toast(`'${data.name}'을(를) 서버에 올리지 못했어요: ${data.error}`, { error: true });
+        break;
+      case "dropped":
+        if (state.connected) uploadTo(data.paths, lastDropDir || state.root);
+        break;
+    }
+  },
+};
+
+/* ================================================================ 기타 화면 동작 */
+$("#loginForm").addEventListener("submit", e => { e.preventDefault(); connect(); });
+
+$("#btnMenu").onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const items = [];
+  if (state.connected) items.push({ icon: "server", label: "새 서버 터미널", run: () => newTab("ssh") });
+  if (!isAndroid()) {
+    items.push({ icon: "monitor", label: "새 명령 프롬프트 (내 PC)", run: () => newTab("cmd") });
+    items.push({ icon: "monitor", label: "새 PowerShell (내 PC)", run: () => newTab("powershell") });
+  }
+  if (MOBILE) {
+    items.push({ icon: "plus", label: `글자 크게 (지금 ${state.fontSize})`, run: () => setFontSize(state.fontSize + 1) });
+    items.push({ icon: "chevDown", label: "글자 작게", run: () => setFontSize(state.fontSize - 1) });
+  }
+  items.push("-");
+  if (state.connected) {
+    const on = state.cfg.tab_titles !== false;
+    const failed = on && state.titlesError;
+    items.push({
+      icon: on && !failed ? "check" : "play", on: on && !failed,
+      label: `탭 이름에 폴더·명령 표시: ${failed ? "켜지 못함 (다시 시도)" : on ? "켜짐" : "꺼짐"}`,
+      run: () => setTabTitles(failed ? true : !on),
+    });
+  }
+  if (state.connected) {
+    const on = state.cfg.server_stats !== false;
+    items.push({ icon: on ? "check" : "monitor", on, label: `상태 줄에 서버 사용량 표시: ${on ? "켜짐" : "꺼짐"}`, run: toggleStats });
+    items.push({ icon: "monitor", label: "서버 사용량 지금 확인", run: checkStatsNow });
+  }
+  if (state.connected) items.push({ icon: "key", label: "비밀번호 없이 접속 다시 설정", run: setupKey });
+  items.push({ icon: "open", label: "다운로드 폴더 열기", run: () => api().show_in_explorer(state.cfg.download_dir) });
+  if (state.connected) items.push("-", { icon: "power", label: "서버 연결 끊기", danger: true, run: disconnect });
+  showMenu(r.right - 260, r.bottom + 6, items);
+};
+
+// 왼쪽 패널 폭 조절
+(() => {
+  const split = $("#splitter");
+  split.addEventListener("mousedown", e => {
+    e.preventDefault();
+    split.classList.add("drag");
+    const move = ev => {
+      const w = Math.max(220, Math.min(innerWidth * 0.45, ev.clientX));
+      document.documentElement.style.setProperty("--side-w", w + "px");
+    };
+    const up = ev => {
+      split.classList.remove("drag");
+      removeEventListener("mousemove", move);
+      removeEventListener("mouseup", up);
+      api().save_ui({ sidebar_width: Math.round(Math.max(220, Math.min(innerWidth * 0.45, ev.clientX))) });
+    };
+    addEventListener("mousemove", move);
+    addEventListener("mouseup", up);
+  });
+})();
+
+let booted = false;
+/* ================= 폰: 서랍 · 키 줄 · 두 손가락 글자 크기 · 뒤로 가기 ================= */
+const drawerOpen = () => document.documentElement.classList.contains("drawer-open");
+function openDrawer() {
+  if (!MOBILE) return;
+  document.documentElement.classList.add("drawer-open");
+  document.activeElement?.blur?.();  // 키보드 내리기
+}
+function closeDrawer() { document.documentElement.classList.remove("drawer-open"); }
+$("#btnDrawer").onclick = () => drawerOpen() ? closeDrawer() : openDrawer();
+$("#drawerBackdrop").onclick = closeDrawer;
+
+// 손가락으로 오른쪽으로 밀면 서랍이 따라 나오고, 서랍을 왼쪽으로 밀면 들어감 (세로로 밀면 평소처럼 스크롤)
+if (MOBILE) {
+  const side = $("#sidebar"), back = $("#drawerBackdrop");
+  let g = null;
+  addEventListener("touchstart", e => {
+    g = null;
+    if (e.touches.length !== 1 || !$("#modal").hidden || !$("#menu").hidden) return;
+    const t = e.touches[0];
+    const open = drawerOpen();
+    if (open ? !(side.contains(e.target) || e.target === back) : (t.clientX > innerWidth * 0.6 || e.target.closest("#keyRow, #tabbar, .statusbar"))) return;
+    g = { x: t.clientX, y: t.clientY, open, started: false, last: t.clientX, t: performance.now(), v: 0 };
+  }, { passive: true });
+  addEventListener("touchmove", e => {
+    if (!g) return;
+    const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (!g.started) {
+      if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+      if (Math.abs(dy) > Math.abs(dx) * 0.8 || (g.open ? dx > 0 : dx < 0)) { g = null; return; }
+      g.started = true;
+      side.classList.add("dragging");
+      back.classList.add("dragging");
+      document.documentElement.classList.add("drawer-open");
+    }
+    e.preventDefault();
+    const w = side.offsetWidth, now = performance.now();
+    g.v = (t.clientX - g.last) / Math.max(1, now - g.t);
+    g.last = t.clientX;
+    g.t = now;
+    const x = Math.max(-w, Math.min(0, g.open ? dx : -w + dx));
+    side.style.transform = `translateX(${x}px)`;
+    back.style.opacity = String(1 + x / w);
+  }, { passive: false });
+  const end = () => {
+    if (!g || !g.started) { g = null; return; }
+    const w = side.offsetWidth;
+    const x = parseFloat((side.style.transform.match(/-?[\d.]+/) || [0])[0]);
+    side.classList.remove("dragging");
+    back.classList.remove("dragging");
+    side.style.transform = back.style.opacity = "";
+    const open = g.v > 0.35 ? true : g.v < -0.35 ? false : x > -w / 2;  // 빠르게 밀면 방향대로
+    open ? openDrawer() : closeDrawer();
+    g = null;
+  };
+  addEventListener("touchend", end);
+  addEventListener("touchcancel", end);
+
+  // 두 손가락으로 벌리거나 오므리면 터미널 글자 크기
+  let pinch = null;
+  const dist = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+  $("#termStack").addEventListener("touchstart", e => {
+    if (e.touches.length === 2) pinch = { d: dist(e.touches), size: state.fontSize };
+  }, { passive: true });
+  $("#termStack").addEventListener("touchmove", e => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const size = Math.round(pinch.size * dist(e.touches) / pinch.d);
+    if (size !== state.fontSize) setFontSize(size);
+  }, { passive: false });
+  $("#termStack").addEventListener("touchend", e => { if (e.touches.length < 2) pinch = null; });
+}
+
+// 폰 키보드에 없는 키 (Ctrl·Alt 는 한 번 누르면 다음 글자 하나에 붙음)
+const mods = { ctrl: false, alt: false };
+function paintMods() {
+  for (const k of ["ctrl", "alt"]) $(`#keyRow [data-k="${k}"]`).classList.toggle("on", mods[k]);
+}
+function applyMods(d) {
+  if (!mods.ctrl && !mods.alt) return d;
+  let out = d;
+  if (mods.ctrl && d.length === 1) {
+    const c = d.toLowerCase();
+    if (c >= "a" && c <= "z") out = String.fromCharCode(c.charCodeAt(0) - 96);
+    else if (c === " " || c === "@") out = "\x00";
+    else if ("[\\]^_".includes(c)) out = String.fromCharCode(c.charCodeAt(0) - 64);
+    else if (c === "?") out = "\x7f";
+  }
+  if (mods.alt) out = "\x1b" + out;
+  mods.ctrl = mods.alt = false;
+  paintMods();
+  return out;
+}
+function keySeq(tab, k) {
+  const app = tab.term.modes.applicationCursorKeysMode;
+  const atPrompt = tab.kind === "ssh" && tab.term.buffer.active.type === "normal" && !app;
+  const arrow = c => (mods.ctrl ? "\x1b[1;5" : app ? "\x1bO" : "\x1b[") + c;
+  switch (k) {
+    case "esc": return "\x1b";
+    case "tab": return "\t";
+    case "up": return arrow("A");
+    case "down": return arrow("B");
+    case "right": return mods.ctrl && atPrompt ? "\x1bf" : arrow("C");
+    case "left": return mods.ctrl && atPrompt ? "\x1bb" : arrow("D");
+    case "home": return atPrompt ? "\x01" : app ? "\x1bOH" : "\x1b[H";  // 셸 프롬프트에서는 어느 셸이든 아는 키로
+    case "end": return atPrompt ? "\x05" : app ? "\x1bOF" : "\x1b[F";
+    case "pgup": return "\x1b[5~";
+    case "pgdn": return "\x1b[6~";
+    default: return k;
+  }
+}
+(() => {
+  const row = $("#keyRow");
+  // 터치는 직접 처리: 기본 동작(포커스 이동)을 막아야 터미널 입력칸이 포커스를 잃지 않음 = 키보드가 닫히지 않음.
+  // 그래서 줄을 옆으로 미는 스크롤도 직접 함
+  let t = null;
+  const press = b => {
+    const k = b.dataset.k;
+    if (k === "ctrl" || k === "alt") { mods[k] = !mods[k]; paintMods(); return; }
+    const tab = activeTab;
+    if (!tab || !tab.id) return;
+    if (k === "paste") { pasteClipboard(tab); return; }
+    const seq = keySeq(tab, k);
+    typeInto(tab, k.length === 1 ? applyMods(seq) : (mods.alt && !["up", "down", "left", "right"].includes(k) ? "\x1b" : "") + seq);
+    if (k.length > 1 && (mods.ctrl || mods.alt)) { mods.ctrl = mods.alt = false; paintMods(); }
+  };
+  row.addEventListener("touchstart", e => {
+    e.preventDefault();
+    const b = e.target.closest("button");
+    t = { x: e.touches[0].clientX, left: row.scrollLeft, b, moved: false };
+    if (b) b.classList.add("press");
+  }, { passive: false });
+  row.addEventListener("touchmove", e => {
+    if (!t) return;
+    const dx = e.touches[0].clientX - t.x;
+    if (Math.abs(dx) > 8) {
+      t.moved = true;
+      if (t.b) t.b.classList.remove("press");
+    }
+    if (t.moved) row.scrollLeft = t.left - dx;
+  }, { passive: true });
+  row.addEventListener("touchend", () => {
+    if (!t) return;
+    if (t.b) t.b.classList.remove("press");
+    if (t.b && !t.moved) press(t.b);
+    t = null;
+  });
+  row.addEventListener("touchcancel", () => { if (t && t.b) t.b.classList.remove("press"); t = null; });
+  // 마우스(PC 에서 확인할 때)
+  row.addEventListener("mousedown", e => e.preventDefault());
+  row.addEventListener("click", e => { const b = e.target.closest("button"); if (b && e.detail !== -1) press(b); });
+  row.addEventListener("contextmenu", e => e.preventDefault());
+})();
+
+// 안드로이드 뒤로 가기: 열린 것부터 닫음. 닫을 게 없으면 false (앱은 뒤로 숨기만 하고 연결은 유지)
+window.__onBack = () => {
+  if (!$("#modal").hidden) { $("#modal").click(); return true; }  // 바깥 누르기 = 취소
+  if (!$("#menu").hidden) { hideMenu(); return true; }
+  if (sel.tab) { endSelect(); return true; }
+  if (!$("#searchBar").hidden) { $("#btnSearchClose").click(); return true; }
+  if (drawerOpen()) { closeDrawer(); return true; }
+  return false;
+};
+
+// 화면 코드 오류가 조용히 묻히지 않게 알림으로 (같은 오류는 한 번만)
+const shownErrors = new Set();
+function reportError(msg) {
+  msg = String(msg || "알 수 없는 오류");
+  if (shownErrors.has(msg)) return;
+  shownErrors.add(msg);
+  try { toast("화면 오류: " + msg, { error: true, timeout: 10000 }); } catch {}
+}
+window.addEventListener("error", e => reportError(e.message));
+window.addEventListener("unhandledrejection", e => reportError(e.reason && (e.reason.message || e.reason)));
+window.addEventListener("pywebviewready", () => { if (!booted) { booted = true; init(); } });
+</script>
+</body>
+</html>
