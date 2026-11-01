@@ -322,6 +322,7 @@
   .dialog table.help { width: 100%; border-collapse: collapse; font-size: 13px; }
   .dialog table.help th { text-align: left; white-space: nowrap; padding: 5px 14px 5px 0; color: var(--text); font-weight: 600; vertical-align: top; }
   .dialog table.help td { padding: 5px 0; color: var(--text-2); }
+  .dialog p.ver { margin: 12px 0 0; color: var(--faint); font-size: 11.5px; }
   .dialog table.help tr.sep td { padding: 4px 0; border-bottom: 1px solid var(--line); }
   .dialog:has(table.help) { width: min(620px, calc(100vw - 32px)); max-width: none; }
   .dialog:has(table.help) .body { max-height: 62vh; overflow: auto; }
@@ -378,7 +379,10 @@
   .mobile .drawer-backdrop.dragging { transition: none; }
   .mobile .icon-btn.btn-drawer { display: grid; flex: none; width: 44px; height: 100%; border-radius: 0; color: var(--text-2); border-right: 1px solid var(--line); }
   .mobile .tabbar { padding-left: 0; height: 44px; }
-  .mobile .tab { min-width: 72px; padding: 0 6px 0 12px; }
+  .mobile .tab { min-width: 72px; padding: 0 4px 0 12px; }
+  /* 폰은 마우스를 올릴 수 없어서, 안 보이는 ✕ 를 잘못 눌러 탭이 닫히지 않게: 지금 탭에만, 손가락 크기로 */
+  .mobile .tab:not(.active) .tab-x { display: none; }
+  .mobile .tab-x { width: 32px; height: 32px; }
   .mobile .row { height: 38px; font-size: 14px; }
   .mobile .side-head { height: 44px; }
   .mobile .icon-btn { width: 34px; height: 34px; }
@@ -2204,7 +2208,8 @@ function showHelp() {
     ["폴더 누르기", "펼치기"], ["파일 두 번 누르기", "폰으로 받아서 열기"],
     ["길게 누르기", "다운로드 · 옮기기 · 여러 개 선택 · 이름 바꾸기 · 삭제"], ["업로드 버튼", "폰 파일 골라서 올리기"],
   ];
-  modal({ title: MOBILE ? "사용법" : "단축키 · 사용법", body: table(MOBILE ? phone : pc), ok: "닫기", cancel: null });
+  modal({ title: MOBILE ? "사용법" : "단축키 · 사용법", ok: "닫기", cancel: null,
+          body: table(MOBILE ? phone : pc) + `<p class="ver">SSH Lite ${esc(state.cfg?.version || "")}</p>` });
 }
 // 터미널이 셸 프롬프트일 때도 F1 은 도움말. htop·mc·vim 처럼 전체 화면 프로그램 안에서는 그 프로그램에 넘김 (그쪽 도움말 키)
 addEventListener("keydown", e => {
