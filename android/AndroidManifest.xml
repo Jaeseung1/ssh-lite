@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.jaeseung1.sshlite"
-    android:versionCode="10"
-    android:versionName="2026.10.31-10">
+    android:versionCode="11"
+    android:versionName="2026.11.01-1">
 
-    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="34" />
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 연결된 동안 '연결 유지' 알림을 띄워서 다른 앱을 써도 끊기지 않게 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".App"
@@ -25,5 +29,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".KeepAliveService" android:exported="false" />
     </application>
 </manifest>

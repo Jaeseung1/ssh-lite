@@ -913,6 +913,7 @@ async function onConnected(r) {
   setPill("on", r.label);
   showSidebar(true);
   if (MOBILE) closeDrawer();
+  if (isAndroid()) checkBattery(true);
   startStats();
   const oldTabs = tabs.filter(t => t.kind === "ssh");
   if (sameServer && oldTabs.length) {
@@ -2480,6 +2481,11 @@ $("#btnMenu").onclick = e => {
     items.push({ icon: "monitor", label: "새 명령 프롬프트 (내 PC)", run: () => newTab("cmd") });
     items.push({ icon: "monitor", label: "새 PowerShell (내 PC)", run: () => newTab("powershell") });
   }
+  if (isAndroid()) {
+    items.push(batteryOk
+      ? { icon: "check", on: true, label: "다른 앱 쓸 때도 연결 유지: 켜짐", run: () => api().battery_settings() }
+      : { icon: "power", label: "다른 앱 쓸 때도 연결 유지 (배터리 설정)", run: () => api().battery_settings() });
+  }
   if (MOBILE) {
     items.push({ icon: "plus", label: `글자 크게 (지금 ${state.fontSize})`, run: () => setFontSize(state.fontSize + 1) });
     items.push({ icon: "chevDown", label: "글자 작게", run: () => setFontSize(state.fontSize - 1) });
@@ -2527,6 +2533,21 @@ $("#btnMenu").onclick = e => {
 })();
 
 let booted = false;
+/* 폰: 다른 앱을 쓰다 돌아와도 끊기지 않게. 연결된 동안은 앱이 '연결 유지' 알림을 띄우고(얼지 않게),
+   폰의 배터리 최적화에서 빼면 더 확실함. 처음 한 번만 권함 */
+let batteryOk = true;
+async function checkBattery(offer) {
+  let r = null;
+  try { r = await api().battery_status(); } catch {}
+  batteryOk = !(r && r.ignoring === false);
+  if (!offer || batteryOk) return;
+  let asked = false;
+  try { asked = localStorage.getItem("sshlite.batteryAsked") === "1"; localStorage.setItem("sshlite.batteryAsked", "1"); } catch {}
+  if (!asked) toast("다른 앱을 쓰다 와도 끊기지 않게 하려면, 폰의 배터리 최적화에서 SSH Lite를 빼 주세요.",
+                    { timeout: 12000, action: { label: "설정", run: () => api().battery_settings() } });
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && isAndroid() && state.connected) checkBattery(false); });
+
 /* ================= 폰: 서랍 · 키 줄 · 두 손가락 글자 크기 · 뒤로 가기 ================= */
 const drawerOpen = () => document.documentElement.classList.contains("drawer-open");
 function openDrawer() {

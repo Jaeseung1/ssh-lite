@@ -185,7 +185,12 @@ public class MainActivity extends Activity implements Core.Platform {
             pool.execute(() -> {
                 String json;
                 try {
-                    json = toJson(core.call(name, new JSONArray(args)));
+                    Object r = phoneCall(name);
+                    if (r == null) {
+                        r = core.call(name, new JSONArray(args));
+                        afterCall(name, r);
+                    }
+                    json = toJson(r);
                 } catch (Throwable e) {
                     try {
                         json = new JSONObject().put("error", Core.friendly(e)).toString();
@@ -196,6 +201,53 @@ public class MainActivity extends Activity implements Core.Platform {
                 final String js = "window.__bridgeResolve && __bridgeResolve(" + id + "," + json + ")";
                 ui.post(() -> web.evaluateJavascript(js, null));
             });
+        }
+    }
+
+    /** 폰에만 있는 기능 (배터리 설정). 해당 없으면 null -> Core 가 처리 */
+    private Object phoneCall(String name) throws Exception {
+        if (name.equals("battery_status")) return new JSONObject().put("ignoring", ignoringBattery());
+        if (name.equals("battery_settings")) {
+            ui.post(this::openBatterySettings);
+            return new JSONObject().put("ok", true);
+        }
+        return null;
+    }
+
+    /** 연결되면 '연결 유지' 알림(포그라운드 서비스)을 띄우고, 끊으면 내림 */
+    private void afterCall(String name, Object r) {
+        if (name.equals("connect") && r instanceof JSONObject && ((JSONObject) r).optBoolean("ok")) {
+            final String label = ((JSONObject) r).optString("label");
+            ui.post(() -> {
+                askNotificationPermission();
+                KeepAliveService.start(this, label);
+            });
+        } else if (name.equals("disconnect")) {
+            ui.post(() -> KeepAliveService.stop(this));
+        }
+    }
+
+    /** Android 13+ 는 알림을 띄우려면 허락이 필요 (거절해도 연결 유지는 됨, 알림만 안 보임) */
+    private void askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 2);
+        }
+    }
+
+    private boolean ignoringBattery() {
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    /** '배터리 사용량 최적화'에서 빼기: 폰이 앱을 정리하거나 얼리지 않게 (폰이 확인 창을 띄움) */
+    private void openBatterySettings() {
+        try {
+            startActivity(new Intent("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", Uri.parse("package:" + getPackageName())));
+        } catch (ActivityNotFoundException e) {
+            try {
+                startActivity(new Intent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"));
+            } catch (ActivityNotFoundException ignored) {
+            }
         }
     }
 
@@ -215,6 +267,7 @@ public class MainActivity extends Activity implements Core.Platform {
 
     @Override
     protected void onDestroy() {
+        KeepAliveService.stop(this);
         if (core != null) core.shutdown();
         pool.shutdownNow();
         super.onDestroy();
