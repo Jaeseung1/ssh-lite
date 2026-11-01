@@ -28,7 +28,7 @@ import webbrowser
 
 import paramiko
 
-APP_VERSION = "2026.10.31-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+APP_VERSION = "2026.11.01-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
 HOME = os.path.expanduser("~")
 DEFAULTS = {
     "host": "",   # 처음 한 번 화면에서 입력하면 기억함 (~/.ssh_lite.json)
@@ -574,6 +574,8 @@ class Backend:
         self._stats_prev = None         # CPU 사용률·네트워크 속도는 직전 값과의 차이로 계산
         self._edits = {}                # 편집 중인 내 PC 임시 파일 -> 서버 경로와 마지막으로 올린 상태
         self._open_file = launch_file
+        self._transferring = False      # 업로드/다운로드 하는 중 (창을 닫을 때 물어보려고)
+        self._force_close = False
         threading.Thread(target=self._transfer_worker, daemon=True).start()
         threading.Thread(target=self._edit_watcher, daemon=True).start()
         threading.Thread(target=clean_old_edits, daemon=True).start()
@@ -920,12 +922,6 @@ class Backend:
             detail = (text + ("\n[stderr]\n" + err if err.strip() else "")).strip()
             return {"error": friendly_error(e), "detail": "\n".join(detail.splitlines()[:40])}
 
-    def clipboard_get(self):
-        return clipboard_get()
-
-    def clipboard_set(self, text):
-        return clipboard_set(str(text))
-
     def open_url(self, url):
         """터미널에서 Ctrl+클릭한 주소를 브라우저로 열기"""
         if re.match(r"^https?://", str(url)):
@@ -1008,6 +1004,7 @@ class Backend:
             if session != self._session:
                 continue  # 그새 연결이 바뀐 작업은 버림
             self._cancel.clear()
+            self._transferring = True
             try:
                 if sftp_session != session:  # 전송은 목록 보기와 따로 SFTP 채널을 하나 더 씀
                     with self._lock:
@@ -1023,6 +1020,8 @@ class Backend:
             except Exception as e:
                 self._emit("transfer_error", {"kind": kind, "dir": dest, "error": friendly_error(e),
                                               "disconnected": not self._connected()})
+            finally:
+                self._transferring = False
 
     def _progress(self, kind, label, index, total, base, job_total):
         """base: 이번 전송에서 앞 파일들로 이미 보낸 양, job_total: 이번 전송 전체 크기 (속도·남은 시간 계산용)"""
@@ -1120,6 +1119,35 @@ class Backend:
         if paths:
             self._emit("dropped", {"paths": paths, "names": self.basenames(paths)})
 
+    def _pending(self):
+        """창을 닫으면 사라질 일: 전송 중이거나, 편집한 파일이 아직 서버에 안 올라감"""
+        out = []
+        if self._transferring or not self._jobs.empty():
+            out.append("파일을 주고받는 중이에요.")
+        for local, info in list(self._edits.items()):
+            try:
+                st = os.stat(local)
+            except OSError:
+                continue
+            if info.get("waiting") or (st.st_mtime_ns, st.st_size) != (info["mtime"], info["size"]):
+                out.append(f"'{posixpath.basename(info['remote'])}'에서 고친 내용이 아직 서버에 안 올라갔어요.")
+        return out
+
+    def _on_closing(self):
+        """창 닫기(X): 사라질 일이 있으면 닫지 않고 화면에서 물어봄 (False 를 돌려주면 pywebview 가 닫기를 취소)"""
+        if not self._force_close:
+            reasons = self._pending()
+            if reasons:
+                threading.Thread(target=self._emit, args=("close_blocked", {"reasons": reasons}), daemon=True).start()
+                return False
+        self._shutdown()
+
+    def force_close(self):
+        """'그래도 닫기'"""
+        self._force_close = True
+        if _window is not None:
+            _window.destroy()
+
     def _shutdown(self):
         save_config(self._cfg)
         self.disconnect()
@@ -1168,7 +1196,7 @@ def main():
         _window.dom.document.events.drop += DOMEventHandler(backend._on_drop, prevent_default=True)
 
     _window.events.loaded += on_loaded
-    _window.events.closing += backend._shutdown
+    _window.events.closing += backend._on_closing
     webview.start(http_server=True)
 
 

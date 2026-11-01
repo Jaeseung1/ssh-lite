@@ -319,6 +319,7 @@
   .dialog .body p { margin: 0 0 8px; }
   .dialog .body b { color: var(--text-2); font-weight: 600; }
   .dialog .field { height: 38px; font-size: 14px; }
+  .field.invalid { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(255, 107, 107, .15); }
   .dialog .mono { font: 12px/1.6 var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; word-break: break-all; }
   .dialog .list { max-height: 160px; overflow: auto; font: 12px/1.7 var(--mono); color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
   .dialog .dlg-error { color: var(--danger); font-size: 12px; min-height: 18px; margin: 8px 0 0; }
@@ -696,7 +697,7 @@ function modal({ title, body = "", input = null, ok = "확인", cancel = "취소
       field.focus();
       if (input.selectStem && field.value.lastIndexOf(".") > 0) field.setSelectionRange(0, field.value.lastIndexOf("."));
       else field.select();
-    } else root.querySelector('[data-act="ok"]').focus();
+    } else root.querySelector(danger && cancel ? '[data-act="cancel"]' : '[data-act="ok"]').focus();  // 삭제 같은 건 Enter 로 바로 안 되게
 
     const close = value => {
       root.hidden = true; root.innerHTML = "";
@@ -708,7 +709,12 @@ function modal({ title, body = "", input = null, ok = "확인", cancel = "취소
     const reject = () => close(field ? null : false);
     const onKey = e => {
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); reject(); }
-      else if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); accept(); }
+      else if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (danger && !field) document.activeElement?.closest?.("[data-act]")?.click();  // 위험한 일은 고른 버튼대로
+        else accept();
+      }
     };
     document.addEventListener("keydown", onKey, true);
     root.onclick = e => {
@@ -843,6 +849,15 @@ async function connect(password = null, trust = null) {
   stopReconnect();
   const host = $("#host").value.trim(), port = $("#port").value.trim(), user = $("#user").value.trim();
   setLoginMsg("");
+  const missing = [["host", "호스트", host], ["port", "포트", port], ["user", "사용자", user]].filter(f => !f[2]);
+  document.querySelectorAll("#loginForm .field").forEach(f => f.classList.remove("invalid"));
+  if (missing.length) {
+    missing.forEach(([id]) => $("#" + id).classList.add("invalid"));
+    setLoginMsg(`${missing.map(f => f[1]).join(", ")}을(를) 입력해 주세요.`);
+    if (MOBILE) openDrawer();
+    $("#" + missing[0][0]).focus();
+    return;
+  }
   setConnecting(true);
   const r = await api().connect(host, port, user, password, trust);
   setConnecting(false);
@@ -1406,6 +1421,7 @@ $("#btnEmptySsh").onclick = () => newTab("ssh");
 $("#btnEmptyCmd").onclick = () => newTab("cmd");
 $("#btnEmptyPs").onclick = () => newTab("powershell");
 $("#btnEmptyConnect").onclick = () => openDrawer();
+$("#loginForm").addEventListener("input", e => e.target.classList.remove("invalid"));
 new ResizeObserver(() => { if (activeTab) try { activeTab.fit.fit(); } catch {} }).observe($("#termStack"));
 
 function cycleTab(delta) {
@@ -2459,6 +2475,13 @@ window.app = {
         break;
       case "edit_waiting":
         toast(`'${data.name}' 저장한 내용은 서버에 다시 연결되면 올릴게요.`);
+        break;
+      case "close_blocked":
+        modal({
+          title: "아직 끝나지 않은 일이 있어요",
+          body: `<p>지금 닫으면 아래 일이 사라져요.</p>${listHtml(data.reasons)}`,
+          ok: "그래도 닫기", cancel: "계속 쓰기", danger: true,
+        }).then(ok => { if (ok) api().force_close(); });
         break;
       case "edit_error":
         toast(`'${data.name}'을(를) 서버에 올리지 못했어요: ${data.error}`, { error: true });
