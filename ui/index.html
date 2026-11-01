@@ -939,7 +939,6 @@ async function onConnected(r) {
   setPill("on", r.label);
   showSidebar(true);
   if (MOBILE) closeDrawer();
-  if (isAndroid()) checkBattery(true);
   startStats();
   const oldTabs = tabs.filter(t => t.kind === "ssh");
   if (sameServer && oldTabs.length) {
@@ -1014,12 +1013,6 @@ async function tryReconnect() {
 // 절전에서 깨어나거나 네트워크가 돌아오면 기다리지 말고 바로 시도
 addEventListener("online", () => { if (state.reconnectTimer) tryReconnect(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && state.reconnectTimer) tryReconnect(); });
-
-async function setupKey() {
-  const r = await api().setup_key();
-  if (r.error) toast("비밀번호 없이 접속하도록 설정하지 못했어요: " + r.error, { error: true });
-  else toast("다음부터는 비밀번호 없이 바로 연결돼요.");
-}
 
 // 서버 탭 이름에 폴더/실행 중인 명령 표시 (기본 켜짐). 켜면 서버 ~/.bashrc 에 몇 줄을 추가함
 async function setTabTitles(on) {
@@ -2407,29 +2400,6 @@ function showStatsError() {
     ok: "다시 시도", cancel: "닫기",
   }).then(ok => { if (ok) startStats(); });
 }
-// ⋯ 메뉴 '서버 사용량 지금 확인': 상태 줄과 상관없이 서버 응답과 화면 상태를 그대로 보여줌
-async function checkStatsNow() {
-  let r;
-  try { r = await api().server_stats(true); } catch (e) { r = { error: "앱 내부 호출 실패: " + e }; }
-  const box = $("#sbStats"), bar = $(".statusbar");
-  const rb = box.getBoundingClientRect(), rs = bar.getBoundingClientRect();
-  const { detail, ...nums } = r || {};
-  const info = [
-    `버전 ${state.cfg.version || "?"}`,
-    `결과 ${JSON.stringify(nums)}`,
-    `상태 줄: 표시 설정 ${state.cfg.server_stats !== false ? "켜짐" : "꺼짐"} · 연결 ${state.connected} · 숨김 ${box.hidden} · 타이머 ${statsTimer ? "있음" : "없음"}`,
-    `상태 줄 칸 위치 x=${Math.round(rb.left)} y=${Math.round(rb.top)} 폭=${Math.round(rb.width)} (상태 줄 y=${Math.round(rs.top)} 폭=${Math.round(rs.width)}, 창 ${innerWidth}×${innerHeight})`,
-    `상태 줄 칸 내용: ${box.textContent.trim().replace(/\s+/g, " ") || "(비어 있음)"}`,
-  ].join("\n");
-  if (!r.error) showStats(r);
-  const ok = await modal({
-    title: r.error ? "서버 사용량을 읽지 못했어요" : "서버 사용량을 읽었어요",
-    body: `<p>${esc(r.error || "아래 내용이 상태 줄에 보여야 해요. 안 보이면 이 화면을 캡처해서 보내주세요.")}</p>
-           <div class="list" style="white-space: pre-wrap; max-height: 300px; user-select: text">${esc(info + "\n\n[서버가 보낸 내용]\n" + (detail || "(아무것도 오지 않았어요)"))}</div>`,
-    ok: "상태 줄 다시 시작", cancel: "닫기",
-  });
-  if (ok) startStats();
-}
 async function toggleStats() {
   state.cfg.server_stats = state.cfg.server_stats === false;
   api().save_ui({ server_stats: state.cfg.server_stats });
@@ -2555,41 +2525,25 @@ window.app = {
 /* ================================================================ 기타 화면 동작 */
 $("#loginForm").addEventListener("submit", e => { e.preventDefault(); connect(); });
 
+// ⋯ 메뉴: 설정과 자주 안 쓰는 것만. 새 탭은 + 버튼, 글자 크기는 상태 줄 오른쪽 끝(폰은 두 손가락)
 $("#btnMenu").onclick = e => {
   const r = e.currentTarget.getBoundingClientRect();
   const items = [];
-  if (state.connected) items.push({ icon: "server", label: "새 서버 터미널", run: () => newTab("ssh") });
-  if (!isAndroid()) {
-    items.push({ icon: "monitor", label: "새 명령 프롬프트 (내 PC)", run: () => newTab("cmd") });
-    items.push({ icon: "monitor", label: "새 PowerShell (내 PC)", run: () => newTab("powershell") });
-  }
-  if (isAndroid()) {
-    items.push(batteryOk
-      ? { icon: "check", on: true, label: "다른 앱 쓸 때도 연결 유지: 켜짐", run: () => api().battery_settings() }
-      : { icon: "power", label: "다른 앱 쓸 때도 연결 유지 (배터리 설정)", run: () => api().battery_settings() });
-  }
-  if (MOBILE) {
-    items.push({ icon: "plus", label: `글자 크게 (지금 ${state.fontSize})`, run: () => setFontSize(state.fontSize + 1) });
-    items.push({ icon: "chevDown", label: "글자 작게", run: () => setFontSize(state.fontSize - 1) });
-  }
-  items.push("-");
   if (state.connected) {
-    const on = state.cfg.tab_titles !== false;
-    const failed = on && state.titlesError;
-    items.push({
-      icon: on && !failed ? "check" : "play", on: on && !failed,
-      label: `탭 이름에 폴더·명령 표시: ${failed ? "켜지 못함 (다시 시도)" : on ? "켜짐" : "꺼짐"}`,
-      run: () => setTabTitles(failed ? true : !on),
-    });
-  }
-  if (state.connected) {
+    if (!MOBILE) {  // 폰은 탭 이름이 짧게만 보여서 이 설정이 별 의미 없음
+      const on = state.cfg.tab_titles !== false;
+      const failed = on && state.titlesError;
+      items.push({
+        icon: on && !failed ? "check" : "play", on: on && !failed,
+        label: `탭 이름에 폴더·명령 표시: ${failed ? "켜지 못함 (다시 시도)" : on ? "켜짐" : "꺼짐"}`,
+        run: () => setTabTitles(failed ? true : !on),
+      });
+    }
     const on = state.cfg.server_stats !== false;
     items.push({ icon: on ? "check" : "monitor", on, label: `상태 줄에 서버 사용량 표시: ${on ? "켜짐" : "꺼짐"}`, run: toggleStats });
-    items.push({ icon: "monitor", label: "서버 사용량 지금 확인", run: checkStatsNow });
   }
-  if (state.connected) items.push({ icon: "key", label: "비밀번호 없이 접속 다시 설정", run: setupKey });
-  items.push({ icon: "terminal", label: MOBILE ? "사용법 (손가락으로)" : "단축키 · 사용법", kbd: MOBILE ? "" : "F1", run: showHelp });
   items.push({ icon: "open", label: "다운로드 폴더 열기", run: () => api().show_in_explorer(state.cfg.download_dir) });
+  items.push({ icon: "terminal", label: MOBILE ? "사용법" : "단축키 · 사용법", kbd: MOBILE ? "" : "F1", run: showHelp });
   if (state.connected) items.push("-", { icon: "power", label: "서버 연결 끊기", danger: true, run: disconnect });
   showMenu(r.right - 260, r.bottom + 6, items);
 };
@@ -2616,21 +2570,6 @@ $("#btnMenu").onclick = e => {
 })();
 
 let booted = false;
-/* 폰: 다른 앱을 쓰다 돌아와도 끊기지 않게. 연결된 동안은 앱이 '연결 유지' 알림을 띄우고(얼지 않게),
-   폰의 배터리 최적화에서 빼면 더 확실함. 처음 한 번만 권함 */
-let batteryOk = true;
-async function checkBattery(offer) {
-  let r = null;
-  try { r = await api().battery_status(); } catch {}
-  batteryOk = !(r && r.ignoring === false);
-  if (!offer || batteryOk) return;
-  let asked = false;
-  try { asked = localStorage.getItem("sshlite.batteryAsked") === "1"; localStorage.setItem("sshlite.batteryAsked", "1"); } catch {}
-  if (!asked) toast("다른 앱을 쓰다 와도 끊기지 않게 하려면, 폰의 배터리 최적화에서 SSH Lite를 빼 주세요.",
-                    { timeout: 12000, action: { label: "설정", run: () => api().battery_settings() } });
-}
-document.addEventListener("visibilitychange", () => { if (!document.hidden && isAndroid() && state.connected) checkBattery(false); });
-
 /* ================= 폰: 서랍 · 키 줄 · 두 손가락 글자 크기 · 뒤로 가기 ================= */
 const drawerOpen = () => document.documentElement.classList.contains("drawer-open");
 function openDrawer() {

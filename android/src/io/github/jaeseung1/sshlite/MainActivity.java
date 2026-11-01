@@ -211,11 +211,8 @@ public class MainActivity extends Activity implements Core.Platform {
             pool.execute(() -> {
                 String json;
                 try {
-                    Object r = phoneCall(name);
-                    if (r == null) {
-                        r = core.call(name, new JSONArray(args));
-                        afterCall(name, r);
-                    }
+                    Object r = core.call(name, new JSONArray(args));
+                    afterCall(name, r);
                     json = toJson(r);
                 } catch (Throwable e) {
                     try {
@@ -228,16 +225,6 @@ public class MainActivity extends Activity implements Core.Platform {
                 ui.post(() -> web.evaluateJavascript(js, null));
             });
         }
-    }
-
-    /** 폰에만 있는 기능 (배터리 설정). 해당 없으면 null -> Core 가 처리 */
-    private Object phoneCall(String name) throws Exception {
-        if (name.equals("battery_status")) return new JSONObject().put("ignoring", ignoringBattery());
-        if (name.equals("battery_settings")) {
-            ui.post(this::openBatterySettings);
-            return new JSONObject().put("ok", true);
-        }
-        return null;
     }
 
     /** 연결되면 '연결 유지' 알림(포그라운드 서비스)을 띄우고, 끊으면 내림 */
@@ -257,23 +244,6 @@ public class MainActivity extends Activity implements Core.Platform {
     private void askNotificationPermission() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 2);
-        }
-    }
-
-    private boolean ignoringBattery() {
-        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
-    }
-
-    /** '배터리 사용량 최적화'에서 빼기: 폰이 앱을 정리하거나 얼리지 않게 (폰이 확인 창을 띄움) */
-    private void openBatterySettings() {
-        try {
-            startActivity(new Intent("android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", Uri.parse("package:" + getPackageName())));
-        } catch (ActivityNotFoundException e) {
-            try {
-                startActivity(new Intent("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS"));
-            } catch (ActivityNotFoundException ignored) {
-            }
         }
     }
 
