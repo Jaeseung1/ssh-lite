@@ -733,12 +733,18 @@ function modal({ title, body = "", input = null, ok = "확인", cancel = "취소
 }
 const listHtml = names => `<div class="list">${names.slice(0, 12).map(esc).join("<br>")}${names.length > 12 ? `<br>… 외 ${names.length - 12}개` : ""}</div>`;
 
-function showMenu(x, y, items) {
+// 메뉴 띄우기: 좌표(x, y) 또는 버튼(anchor)에 붙여서. right = 버튼 오른쪽 끝에 맞춤, above = 버튼 위로
+function showMenu(x, y, items, { anchor = null, right = false, above = false } = {}) {
   const menu = $("#menu");
   menu.innerHTML = items.map((it, i) => it === "-" ? "<hr>" :
     `<button data-i="${i}" role="menuitem" class="${it.danger ? "danger" : ""}${it.on ? " on" : ""}">${icon(it.icon, 15)}<span>${esc(it.label)}</span>${it.kbd ? `<span class="kbd">${it.kbd}</span>` : ""}</button>`).join("");
   menu.hidden = false;
   const r = menu.getBoundingClientRect();
+  if (anchor) {  // 실제 메뉴 크기를 잰 다음 버튼에 맞춤 (폭을 어림하면 어긋남)
+    const a = anchor.getBoundingClientRect();
+    x = right ? a.right - r.width : a.left;
+    y = above ? a.top - r.height - 6 : a.bottom + 6;
+  }
   // 화면 밖으로 나가지 않게 (좌표가 없으면 가운데)
   menu.style.left = Math.max(8, Math.min(Number.isFinite(x) ? x : (innerWidth - r.width) / 2, innerWidth - r.width - 8)) + "px";
   menu.style.top = Math.max(8, Math.min(Number.isFinite(y) ? y : (innerHeight - r.height) / 2, innerHeight - r.height - 8)) + "px";
@@ -1413,18 +1419,18 @@ function endTabDrag(e) {
 addEventListener("pointerup", endTabDrag);
 addEventListener("pointercancel", endTabDrag);
 $("#tabbar").addEventListener("dblclick", e => { if (!e.target.closest(".tab")) newTab(); });  // 빈 곳 더블클릭 = 새 탭
-function newTabMenu(x, y) {
+function newTabMenu(x, y, anchor = null) {
   showMenu(x, y, [
     state.connected
-      ? { icon: "server", label: `서버 터미널 · ${state.label}`, kbd: "Ctrl+Shift+T", run: () => newTab("ssh") }
+      ? { icon: "server", label: `서버 터미널 · ${state.label}`, kbd: MOBILE ? "" : "Ctrl+Shift+T", run: () => newTab("ssh") }
       : { icon: "server", label: "서버에 연결…", run: () => MOBILE ? openDrawer() : $("#host").focus() },
     ...(isAndroid() ? [] : [
       { icon: "monitor", label: "명령 프롬프트 (내 PC)", run: () => newTab("cmd") },
       { icon: "monitor", label: "PowerShell (내 PC)", run: () => newTab("powershell") },
     ]),
-  ]);
+  ], { anchor });
 }
-$("#btnNewTab").onclick = e => { const r = e.currentTarget.getBoundingClientRect(); newTabMenu(r.left, r.bottom + 6); };
+$("#btnNewTab").onclick = e => newTabMenu(0, 0, e.currentTarget);
 $("#btnEmptySsh").onclick = () => newTab("ssh");
 $("#btnEmptyCmd").onclick = () => newTab("cmd");
 $("#btnEmptyPs").onclick = () => newTab("powershell");
@@ -2160,23 +2166,22 @@ function toggleHidden() {
   render();
 }
 $("#btnSideMenu").onclick = e => {
-  const r = e.currentTarget.getBoundingClientRect();
-  showMenu(r.left, r.bottom + 6, [
+  const anchor = e.currentTarget;
+  showMenu(0, 0, [
     { icon: "folderPlus", label: "새 폴더", run: () => newFolder() },
     { icon: "refresh", label: "새로고침", kbd: "F5", run: () => refreshDir() },
     "-",
     { icon: state.showHidden ? "check" : "eye", on: state.showHidden, label: "숨김 파일 보기", run: toggleHidden },
     { icon: state.follow ? "check" : "link", on: state.follow, label: "터미널 폴더 따라가기", run: toggleFollow },
-  ]);
+  ], { anchor, right: true });
 };
 $("#sbFollow").onclick = toggleFollow;
 $("#sbFont").onclick = e => {
-  const r = e.currentTarget.getBoundingClientRect();
-  showMenu(r.right - 220, r.top - 120, [
-    { icon: "plus", label: "글자 크게", kbd: "Ctrl+=", run: () => setFontSize(state.fontSize + 1) },
-    { icon: "chevDown", label: "글자 작게", kbd: "Ctrl+-", run: () => setFontSize(state.fontSize - 1) },
-    { icon: "refresh", label: "원래 크기", kbd: "Ctrl+0", run: () => setFontSize(14) },
-  ]);
+  showMenu(0, 0, [
+    { icon: "plus", label: "글자 크게", kbd: MOBILE ? "" : "Ctrl+=", run: () => setFontSize(state.fontSize + 1) },
+    { icon: "chevDown", label: "글자 작게", kbd: MOBILE ? "" : "Ctrl+-", run: () => setFontSize(state.fontSize - 1) },
+    { icon: "refresh", label: "원래 크기", kbd: MOBILE ? "" : "Ctrl+0", run: () => setFontSize(MOBILE ? 13 : 14) },
+  ], { anchor: e.currentTarget, right: true, above: true });
 };
 
 /* 단축키 · 사용법 (⋯ 메뉴, F1). 폰은 손가락 동작으로 */
@@ -2545,7 +2550,7 @@ $("#btnMenu").onclick = e => {
   items.push({ icon: "open", label: "다운로드 폴더 열기", run: () => api().show_in_explorer(state.cfg.download_dir) });
   items.push({ icon: "terminal", label: MOBILE ? "사용법" : "단축키 · 사용법", kbd: MOBILE ? "" : "F1", run: showHelp });
   if (state.connected) items.push("-", { icon: "power", label: "서버 연결 끊기", danger: true, run: disconnect });
-  showMenu(r.right - 260, r.bottom + 6, items);
+  showMenu(0, 0, items, { anchor: e.currentTarget, right: true });
 };
 
 // 왼쪽 패널 폭 조절
