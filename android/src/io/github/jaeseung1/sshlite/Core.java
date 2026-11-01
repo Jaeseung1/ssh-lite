@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.01-2";
+    public static final String APP_VERSION = "2026.11.01-3";
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
@@ -131,6 +131,11 @@ public class Core {
          .put("auto_connect", false).put("show_hidden", false).put("sidebar_width", 300)
          .put("tab_titles", true).put("follow_cwd", true).put("font_size", 13).put("server_stats", true)
          .put("download_dir", "다운로드/SSH Lite");
+        try {  // 개인용 빌드: 앱 안에 defaults.local.json 이 있으면 서버 정보가 채워져 있음 (저장소에는 안 올림)
+            JSONObject mine = new JSONObject(p.readAsset("defaults.local.json"));
+            for (String k : new String[]{"host", "port", "user", "auto_connect"}) if (mine.has(k)) c.put(k, mine.get(k));
+        } catch (Exception ignored) {
+        }
         try {
             JSONObject saved = new JSONObject(readFile(configFile()));
             for (java.util.Iterator<String> it = saved.keys(); it.hasNext(); ) {

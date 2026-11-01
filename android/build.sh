@@ -47,3 +47,14 @@ fi
 apksigner sign --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --ks release.keystore --ks-pass pass:sshlite --key-pass pass:sshlite --out SSH-Lite.apk "$OUT/aligned.apk"
 apksigner verify SSH-Lite.apk
 echo "만들었어요: $(pwd)/SSH-Lite.apk"
+
+# 8. 개인용: ../defaults.local.json(내 서버 정보)이 있으면 그걸 넣은 SSH-Lite-personal.apk 도 만듦 (저장소에는 안 올라감)
+if [ -f ../defaults.local.json ]; then
+  cp "$OUT/unsigned.apk" "$OUT/personal.apk"
+  mkdir -p "$OUT/personal/assets" && cp ../defaults.local.json "$OUT/personal/assets/"
+  (cd "$OUT/personal" && zip -q ../personal.apk assets/defaults.local.json)
+  zipalign -f 4 "$OUT/personal.apk" "$OUT/personal-aligned.apk"
+  apksigner sign --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --ks release.keystore --ks-pass pass:sshlite --key-pass pass:sshlite --out SSH-Lite-personal.apk "$OUT/personal-aligned.apk"
+  apksigner verify SSH-Lite-personal.apk
+  echo "개인용도 만들었어요: $(pwd)/SSH-Lite-personal.apk"
+fi

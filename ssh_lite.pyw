@@ -43,6 +43,13 @@ DEFAULTS = {
     "font_size": 14,
     "server_stats": True,  # 상태 줄에 서버 CPU/메모리/디스크 사용량
 }
+# 개인용 빌드: defaults.local.json 이 함께 있으면 처음 켤 때 서버 정보가 채워져 있음 (저장소에는 안 올림)
+try:
+    with open(os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "defaults.local.json"),
+              encoding="utf-8") as _f:
+        DEFAULTS.update({k: v for k, v in json.load(_f).items() if k in ("host", "port", "user", "auto_connect")})
+except (OSError, ValueError):
+    pass
 CONFIG_PATH = os.path.join(HOME, ".ssh_lite.json")
 SSH_DIR = os.path.join(HOME, ".ssh")
 KNOWN_HOSTS = os.path.join(SSH_DIR, "known_hosts")  # cmd의 ssh와 같은 파일

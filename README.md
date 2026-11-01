@@ -122,6 +122,14 @@ SSH는 JSch, Ed25519·Curve25519 암호는 Bouncy Castle에서 필요한 부분�
 ## 코드를 고쳐서 다시 만들 때 (선택)
 
 Python 3.11~3.13을 설치한 뒤 `build_exe.bat`을 더블클릭하면 `dist\SSH-Lite.exe`가 새로 만들어져요.
+
+**내 서버 정보를 미리 넣어서 만들기**: 저장소 맨 위에 `defaults.local.json`을 만들어 두세요.
+그러면 `build_exe.bat`과 `android/build.sh`로 만든 앱이 처음 켤 때부터 그 서버로 채워져 있어요.
+안드로이드는 `SSH-Lite-personal.apk`가 따로 만들어져요. 이 파일은 `.gitignore`에 들어 있어서 저장소에는 올라가지 않아요.
+
+```json
+{"host": "myserver.example.com", "port": 22, "user": "me"}
+```
 exe 없이 바로 실행하려면 `pip install -r requirements.txt` 후 `ssh_lite.pyw`를 더블클릭하세요 (`ui` 폴더가 옆에 있어야 해요).
 
 ## 알아두면 좋은 것
