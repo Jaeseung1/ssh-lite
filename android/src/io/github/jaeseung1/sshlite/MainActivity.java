@@ -98,7 +98,17 @@ public class MainActivity extends Activity implements Core.Platform {
         }
         web = new TermWebView(this);
         web.setBackgroundColor(BG);
-        setContentView(web);
+        // Android 15+ 를 대상으로 하면 화면이 상태 줄·내비게이션 줄 밑까지 그려짐 -> 그만큼 안쪽으로 (키보드가 올라오면 키보드 위까지)
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+        root.setBackgroundColor(PANEL);
+        root.addView(web);
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            int[] p = barsAndKeyboard(insets);
+            v.setPadding(p[0], p[1], p[2], p[3]);
+            return insets.consumeSystemWindowInsets();
+        });
+        setContentView(root);
+        registerBack();
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
@@ -161,6 +171,22 @@ public class MainActivity extends Activity implements Core.Platform {
                 })
                 .setNegativeButton("닫기", null)
                 .show();
+    }
+
+    /** 상태 줄·내비게이션 줄·카메라 구멍·키보드가 차지하는 크기 {왼, 위, 오른, 아래}.
+     *  Android 11+ 는 WindowInsets.getInsets(systemBars | displayCutout | ime) (API 23 기준으로 빌드해서 리플렉션) */
+    private static int[] barsAndKeyboard(android.view.WindowInsets insets) {
+        try {
+            Class<?> type = Class.forName("android.view.WindowInsets$Type");
+            int mask = (int) type.getMethod("systemBars").invoke(null) | (int) type.getMethod("displayCutout").invoke(null)
+                    | (int) type.getMethod("ime").invoke(null);
+            Object in = android.view.WindowInsets.class.getMethod("getInsets", int.class).invoke(insets, mask);
+            Class<?> c = in.getClass();
+            return new int[]{c.getField("left").getInt(in), c.getField("top").getInt(in), c.getField("right").getInt(in), c.getField("bottom").getInt(in)};
+        } catch (Exception e) {
+            return new int[]{insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom()};
+        }
     }
 
     private static String mimeOf(String path) {
@@ -258,11 +284,37 @@ public class MainActivity extends Activity implements Core.Platform {
     }
 
     @Override
-    public void onBackPressed() {
-        // 서랍·메뉴·대화상자가 열려 있으면 그것부터 닫음. 없으면 앱을 뒤로 보내기만 함 (연결은 그대로)
+    public void onBackPressed() {  // Android 12 까지
+        handleBack();
+    }
+
+    /** 서랍·메뉴·대화상자가 열려 있으면 그것부터 닫음. 없으면 앱을 뒤로 보내기만 함 (연결은 그대로) */
+    private void handleBack() {
         web.evaluateJavascript("window.__onBack ? __onBack() : false", v -> {
             if (!"true".equals(v)) moveTaskToBack(true);
         });
+    }
+
+    /** Android 13+ 의 뒤로 가기 (Android 16 을 대상으로 하면 onBackPressed 가 불리지 않음).
+     *  API 23 기준으로 빌드해서 리플렉션 + Proxy 로 OnBackInvokedCallback 을 만듦 */
+    private void registerBack() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        try {
+            Class<?> cbType = Class.forName("android.window.OnBackInvokedCallback");
+            Object cb = java.lang.reflect.Proxy.newProxyInstance(cbType.getClassLoader(), new Class<?>[]{cbType}, (proxy, m, args) -> {
+                switch (m.getName()) {
+                    case "onBackInvoked": ui.post(this::handleBack); return null;
+                    case "hashCode": return System.identityHashCode(proxy);
+                    case "equals": return proxy == args[0];
+                    case "toString": return "SSH Lite 뒤로 가기";
+                    default: return null;
+                }
+            });
+            Object dispatcher = Activity.class.getMethod("getOnBackInvokedDispatcher").invoke(this);
+            Class.forName("android.window.OnBackInvokedDispatcher")
+                    .getMethod("registerOnBackInvokedCallback", int.class, cbType).invoke(dispatcher, 0, cb);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

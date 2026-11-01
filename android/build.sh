@@ -38,6 +38,7 @@ dalvik-exchange --dex --min-sdk-version=26 --output="$OUT/classes.dex" "$OUT/dex
 # 7. 묶기 -> 정렬 -> 서명 (같은 키로 서명해야 폰에서 '업데이트'로 설치됨)
 aapt package -f -M AndroidManifest.xml -S res -A "$OUT/assets" -I "$ANDROID_JAR" -F "$OUT/unsigned.apk"
 (cd "$OUT" && zip -q unsigned.apk classes.dex)
+python3 patch_manifest.py "$OUT/unsigned.apk"  # aapt 가 모르는 최신 속성(포그라운드 서비스 종류) 넣기
 zipalign -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 if [ ! -f release.keystore ]; then
   keytool -genkeypair -keystore release.keystore -alias sshlite -keyalg RSA -keysize 3072 -validity 36500 \
