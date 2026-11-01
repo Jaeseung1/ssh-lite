@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.01-4";
+    public static final String APP_VERSION = "2026.11.01-5";
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
