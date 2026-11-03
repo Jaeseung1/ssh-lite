@@ -400,6 +400,8 @@
   .mobile .sb-where, .mobile .sb-uptime, .mobile #sbFollow { display: none !important; }
   .mobile .statusbar { padding: 0 6px 0 4px; }
   .mobile .sb-right { margin-left: auto; }
+  .mobile .sb-stats .stat { padding: 0 7px; gap: 4px; }  /* 메모리·디스크를 사용/전체로 보여서 폰 폭에 맞게 조금 좁게 */
+  .mobile .sb-stats::after { margin-right: 0; }
   .mobile .menu { min-width: 220px; max-width: calc(100vw - 16px); }
   .mobile .menu button { min-height: 42px; }
   .mobile .dialog { width: calc(100vw - 24px); max-width: 440px; }
@@ -2392,14 +2394,14 @@ function showStats(r) {
   const html = [], tips = [];
   html.push(`<span class="stat${level(r.cpu)}" title="${r.cpu == null ? "CPU 재는 중" : `CPU ${r.cpu}%`}"><span class="k">CPU</span> <span class="v">${r.cpu == null ? "…" : r.cpu + "%"}</span>${meter(r.cpu)}</span>`);
   if (r.mem_total) {
-    const pct = Math.round(r.mem_used / r.mem_total * 100), tip = `메모리 ${fmtSize(r.mem_used)} / ${fmtSize(r.mem_total)}`;
+    const pct = Math.round(r.mem_used / r.mem_total * 100), tip = `메모리 ${fmtSize(r.mem_used)} / ${fmtSize(r.mem_total)} 사용 중 (${pct}%)`;
     tips.push(tip);
-    html.push(`<span class="stat${level(pct)}" title="${esc(tip)}"><span class="k">메모리</span> <span class="v">${pct}%</span>${meter(pct)}</span>`);
+    html.push(`<span class="stat${level(pct)}" title="${esc(tip)}"><span class="k">메모리</span> <span class="v">${fmtUsed(r.mem_used, r.mem_total, 1024)}</span>${meter(pct)}</span>`);
   }
   if (r.disk_total) {
-    const tip = `디스크 ${fmtSize(r.disk_used)} / ${fmtSize(r.disk_total)} (${r.mount})`;
+    const tip = `디스크 ${fmtUsed(r.disk_used, r.disk_total, 1000)} 사용 중 (${r.disk_pct}%, ${r.mount})`;
     tips.push(tip);
-    html.push(`<span class="stat${level(r.disk_pct)}" title="${esc(tip)}"><span class="k">디스크</span> <span class="v">${r.disk_pct}%</span>${meter(r.disk_pct)}</span>`);
+    html.push(`<span class="stat${level(r.disk_pct)}" title="${esc(tip)}"><span class="k">디스크</span> <span class="v">${fmtUsed(r.disk_used, r.disk_total, 1000)}</span>${meter(r.disk_pct)}</span>`);
   }
   if (r.net_in != null) {
     html.push(`<span class="stat opt" title="서버 네트워크: 받는 속도 / 보내는 속도"><span class="net-down">↓</span> <span class="v">${fmtSize(r.net_in)}/s</span> <span class="net-up">↑</span> <span class="v">${fmtSize(r.net_out)}/s</span></span>`);
@@ -2411,6 +2413,15 @@ function showStats(r) {
   box.innerHTML = html.join("");
   box.title = tips.join("  ·  ");
   box.hidden = false;
+}
+// '사용 / 전체 단위' 한 단위로 짧게: 27.5/32 GB, 135/245 GB, 1.2/2 TB
+// 메모리는 1024 단위(32GB 램 = 32 GB), 디스크는 1000 단위(맥 Finder·디스크 제품 표기와 같게)
+function fmtUsed(used, total, base) {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let i = 0;
+  while (total >= base * 0.95 && i < units.length - 1) { total /= base; used /= base; i++; }
+  const num = v => v >= 100 ? Math.round(v) : v > 0 && v < 0.1 ? +v.toFixed(2) : +v.toFixed(1);
+  return `${num(used)}/${num(total)} ${units[i]}`;
 }
 function fmtUptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
