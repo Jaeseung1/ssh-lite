@@ -384,6 +384,9 @@
   .mobile .tab:not(.active) .tab-x { display: none; }
   .mobile .tab-x { width: 32px; height: 32px; }
   .mobile .row { height: 38px; font-size: 14px; }
+  .mobile .row:active { background: var(--hover); }  /* 누르는 순간 바로 보이게 */
+  /* 위아래 스크롤은 브라우저가, 옆으로 미는 건 앱(서랍)이 받게: 둘이 손가락을 서로 뺏지 않음 */
+  .mobile .sidebar, .mobile .tree, .mobile .term-stack, .mobile .drawer-backdrop { touch-action: pan-y; }
   .mobile .side-head { height: 44px; }
   .mobile .icon-btn { width: 34px; height: 34px; }
   .mobile .tree-filter { height: 36px; }
@@ -1642,16 +1645,14 @@ if (MOBILE) {
     termPress.x = t.clientX;
     termPress.y = t.clientY;
     termPress.timer = setTimeout(() => { termPress.timer = null; termPress.fired = true; openTermMenu(termPress.x, termPress.y); }, 450);
+    followTouch(e.target, ev => {
+      const m = ev.touches[0];
+      if (ev.touches.length !== 1 || Math.hypot(m.clientX - termPress.x, m.clientY - termPress.y) > 10) cancel();  // 스크롤·밀기
+    }, ev => {
+      cancel();
+      if (termPress.fired && ev.cancelable) ev.preventDefault();  // 손을 뗄 때 클릭이 따로 생기지 않게
+    });
   }, { passive: true });
-  stack.addEventListener("touchmove", e => {
-    const t = e.touches[0];
-    if (e.touches.length !== 1 || Math.hypot(t.clientX - termPress.x, t.clientY - termPress.y) > 10) cancel();  // 스크롤·밀기
-  }, { passive: true });
-  stack.addEventListener("touchend", e => {
-    cancel();
-    if (termPress.fired) e.preventDefault();  // 손을 뗄 때 클릭이 따로 생기지 않게
-  }, { passive: false });
-  stack.addEventListener("touchcancel", cancel);
 }
 
 // 키 입력은 탭별로 순서가 섞이지 않게 한 번에 하나씩 보냄
@@ -2591,24 +2592,43 @@ function closeDrawer() { document.documentElement.classList.remove("drawer-open"
 $("#btnDrawer").onclick = () => drawerOpen() ? closeDrawer() : openDrawer();
 $("#drawerBackdrop").onclick = closeDrawer;
 
+/* 터치가 시작된 요소가 손가락을 대고 있는 사이 지워지면(트리 새로고침, 터미널 출력으로 다시 그려짐)
+   그 뒤의 움직임·손 떼기가 window 까지 올라오지 않음 -> 서랍이 끌던 자리에 멈추던 원인.
+   시작한 요소 자체에 붙여서 끝까지 받음 */
+function followTouch(target, onMove, onEnd) {
+  const opts = { passive: false };
+  const stop = ev => {
+    target.removeEventListener("touchmove", onMove, opts);
+    target.removeEventListener("touchend", stop);
+    target.removeEventListener("touchcancel", stop);
+    onEnd(ev);
+  };
+  target.addEventListener("touchmove", onMove, opts);
+  target.addEventListener("touchend", stop);
+  target.addEventListener("touchcancel", stop);
+}
+
 // 손가락으로 오른쪽으로 밀면 서랍이 따라 나오고, 서랍을 왼쪽으로 밀면 들어감 (세로로 밀면 평소처럼 스크롤)
 if (MOBILE) {
   const side = $("#sidebar"), back = $("#drawerBackdrop");
   let g = null;
   addEventListener("touchstart", e => {
+    if (g && g.started) end();  // 지난번 끌기가 어떤 이유로든 안 끝났으면 먼저 제자리로
     g = null;
     if (e.touches.length !== 1 || !$("#modal").hidden || !$("#menu").hidden) return;
     const t = e.touches[0];
     const open = drawerOpen();
     if (open ? !(side.contains(e.target) || e.target === back) : (t.clientX > innerWidth * 0.6 || e.target.closest("#keyRow, #tabbar, .statusbar"))) return;
     g = { x: t.clientX, y: t.clientY, open, started: false, last: t.clientX, t: performance.now(), v: 0 };
+    followTouch(e.target, move, end);
   }, { passive: true });
-  addEventListener("touchmove", e => {
+  function move(e) {
     if (!g) return;
     const t = e.touches[0], dx = t.clientX - g.x, dy = t.clientY - g.y;
     if (!g.started) {
       if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
-      if (Math.abs(dy) > Math.abs(dx) * 0.8 || (g.open ? dx > 0 : dx < 0)) { g = null; return; }
+      // 옆으로 확실히 밀 때만 서랍 (위아래 스크롤하다 조금 비껴도 서랍이 딸려 오지 않게)
+      if (Math.abs(dx) < Math.abs(dy) * 1.6 || (g.open ? dx > 0 : dx < 0)) { g = null; return; }
       g.started = true;
       side.classList.add("dragging");
       back.classList.add("dragging");
@@ -2622,8 +2642,8 @@ if (MOBILE) {
     const x = Math.max(-w, Math.min(0, g.open ? dx : -w + dx));
     side.style.transform = `translateX(${x}px)`;
     back.style.opacity = String(1 + x / w);
-  }, { passive: false });
-  const end = () => {
+  }
+  function end() {
     if (!g || !g.started) { g = null; return; }
     const w = side.offsetWidth;
     const x = parseFloat((side.style.transform.match(/-?[\d.]+/) || [0])[0]);
@@ -2633,9 +2653,7 @@ if (MOBILE) {
     const open = g.v > 0.35 ? true : g.v < -0.35 ? false : x > -w / 2;  // 빠르게 밀면 방향대로
     open ? openDrawer() : closeDrawer();
     g = null;
-  };
-  addEventListener("touchend", end);
-  addEventListener("touchcancel", end);
+  }
 
   // 두 손가락으로 벌리거나 오므리면 터미널 글자 크기
   let pinch = null;
