@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.03-1";
+    public static final String APP_VERSION = "2026.11.03-2";
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
@@ -186,6 +186,7 @@ public class Core {
             case "clipboard_get": return p.clipboardGet();
             case "clipboard_set": return p.clipboardSet(a.optString(0));
             case "server_stats": return serverStats(a.optBoolean(0));
+            case "ping": return ping();
             case "open_url": { String u = a.optString(0); if (u.matches("^https?://.*")) p.openUrl(u); return null; }
             case "open_remote": return openRemote(a.getString(0));
             case "upload": jobs.put(new Object[]{"upload", a.getJSONArray(0), a.getString(1), sessionNo});
@@ -653,6 +654,19 @@ public class Core {
         } catch (Exception e) {
             if (d != null) d.abort();
             return err(friendly(e)).put("disconnected", !connected());
+        }
+    }
+
+    /** 다른 앱에서 돌아왔을 때: 연결이 정말 살아 있는지 서버에 짧게 물어봄 (4초). 답이 없으면 끊고 false */
+    private boolean ping() {
+        if (!connected()) return false;
+        try {
+            exec("true", 4000);
+            return true;
+        } catch (Exception e) {
+            Session s = session;
+            if (s != null) s.disconnect();  // 터미널들이 끝나면서 화면에 '끊김'이 감
+            return false;
         }
     }
 

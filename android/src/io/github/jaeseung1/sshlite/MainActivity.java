@@ -201,6 +201,12 @@ public class MainActivity extends Activity implements Core.Platform {
     /** 화면(JS)이 부르는 입구: 기능 이름, 인자(JSON 배열), 답을 돌려줄 번호 */
     class Bridge {
         /** 길게 누르기가 됐다는 짧은 진동 (권한 필요 없는 화면 진동) */
+        /** 키 줄을 누를 때 아주 짧은 진동 */
+        @JavascriptInterface
+        public void tap() {
+            ui.post(() -> web.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP));
+        }
+
         @JavascriptInterface
         public void haptic() {
             ui.post(() -> web.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS));

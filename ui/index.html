@@ -389,6 +389,10 @@
   .mobile .sidebar, .mobile .tree, .mobile .term-stack, .mobile .drawer-backdrop { touch-action: pan-y; }
   .mobile .side-head { height: 44px; }
   .mobile .icon-btn { width: 34px; height: 34px; }
+  .mobile .tabbar .icon-btn:not(.btn-drawer) { width: 40px; height: 40px; }
+  .mobile .statusbar { height: 32px; }
+  .mobile .workspace { height: calc(100% - 32px); }
+  .mobile .sb-right button { min-height: 28px; padding: 2px 10px; }
   .mobile .tree-filter { height: 36px; }
   .mobile .tree-filter input { font-size: 14px; }
   .mobile .field { font-size: 16px; height: 42px; }  /* 16px 보다 작으면 폰이 입력할 때 화면을 확대함 */
@@ -1025,7 +1029,17 @@ async function tryReconnect() {
 
 // 절전에서 깨어나거나 네트워크가 돌아오면 기다리지 말고 바로 시도
 addEventListener("online", () => { if (state.reconnectTimer) tryReconnect(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && state.reconnectTimer) tryReconnect(); });
+// 다른 앱(또는 잠자기)에서 돌아오면: 끊겨서 기다리는 중이면 바로 다시 연결, 연결돼 보이면 정말 살아 있는지 확인
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", async () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (state.reconnectTimer) return tryReconnect();
+  if (state.connected && Date.now() - hiddenAt > 8000) {
+    let alive = true;
+    try { alive = await api().ping(); } catch {}
+    if (alive === false && state.connected) onDisconnected();
+  }
+});
 
 // 서버 탭 이름에 폴더/실행 중인 명령 표시 (기본 켜짐). 켜면 서버 ~/.bashrc 에 몇 줄을 추가함
 async function setTabTitles(on) {
@@ -1684,7 +1698,8 @@ async function cdInTerminal(dir) {
   else tab = await newTab("ssh");
   if (!tab) return;
   sendInput(tab, `cd ${shQuote(dir)}\r`);
-  tab.term.focus();
+  if (MOBILE) closeDrawer();
+  else tab.term.focus();
 }
 
 /* ================================================================ 파일 트리 */
@@ -2205,7 +2220,7 @@ function showHelp() {
   ];
   const phone = [
     ["화면을 오른쪽으로 밀기", "서버 파일 서랍 (왼쪽으로 밀거나 뒤로 가기로 닫기)"], ["두 손가락 벌리기", "글자 크기"],
-    ["터미널 길게 누르기", "붙여넣기 · 구간 선택해서 복사"], ["키 줄", "Esc · Tab · Ctrl · 방향키 · Enter (옆으로 밀면 더)"], "-",
+    ["터미널 길게 누르기", "붙여넣기 · 구간 선택해서 복사"], ["키 줄", "Esc · Tab · Ctrl · 방향키 · Enter (옆으로 밀면 더, 방향키는 꾹 누르면 계속)"], "-",
     ["폴더 누르기", "펼치기"], ["파일 두 번 누르기", "폰으로 받아서 열기"],
     ["길게 누르기", "다운로드 · 옮기기 · 여러 개 선택 · 이름 바꾸기 · 삭제"], ["업로드 버튼", "폰 파일 골라서 올리기"],
   ];
@@ -2670,6 +2685,46 @@ if (MOBILE) {
   $("#termStack").addEventListener("touchend", e => { if (e.touches.length < 2) pinch = null; });
 }
 
+if (MOBILE) {
+  const stack = $("#termStack");
+  let fling = null, tr = null;
+  const stopFling = () => { if (fling) cancelAnimationFrame(fling.raf); fling = null; };
+  stack.addEventListener("touchstart", e => {
+    stopFling();
+    tr = null;
+    if (e.touches.length !== 1 || !activeTab || sel.tab) return;
+    const y = e.touches[0].clientY;
+    tr = { y, t: performance.now(), v: 0 };
+    followTouch(e.target, ev => {
+      if (!tr || ev.touches.length !== 1) return;
+      const ny = ev.touches[0].clientY, now = performance.now();
+      const v = (tr.y - ny) / Math.max(1, now - tr.t);  // 화면 위로 미는 속도 (px/ms)
+      tr.v = tr.v * 0.6 + v * 0.4;
+      tr.y = ny;
+      tr.t = now;
+    }, () => {
+      const tab = activeTab, v0 = tr ? tr.v : 0;
+      tr = null;
+      if (!tab || Math.abs(v0) < 0.5 || performance.now() - (termPress.shownAt || 0) < 600) return;
+      if (tab.term.buffer.active.type !== "normal") return;  // vim·less 같은 전체 화면 프로그램 안에서는 안 함
+      const rowPx = tab.el.querySelector(".xterm-screen").getBoundingClientRect().height / tab.term.rows;
+      fling = { v: v0, acc: 0, last: performance.now() };
+      const step = now => {
+        if (!fling) return;
+        const dt = now - fling.last;
+        fling.last = now;
+        fling.acc += fling.v * dt;
+        const lines = Math.trunc(fling.acc / rowPx);
+        if (lines) { tab.term.scrollLines(lines); fling.acc -= lines * rowPx; }
+        fling.v *= Math.pow(0.96, dt / 16);  // 손을 뗀 뒤 점점 느려짐
+        if (Math.abs(fling.v) < 0.05) return stopFling();
+        fling.raf = requestAnimationFrame(step);
+      };
+      fling.raf = requestAnimationFrame(step);
+    });
+  }, { passive: true });
+}
+
 // 폰 키보드에 없는 키 (Ctrl·Alt 는 한 번 누르면 다음 글자 하나에 붙음)
 const mods = { ctrl: false, alt: false };
 function paintMods() {
@@ -2715,6 +2770,7 @@ function keySeq(tab, k) {
   // 그래서 줄을 옆으로 미는 스크롤도 직접 함
   let t = null;
   const press = b => {
+    try { window.AndroidBridge?.tap?.(); } catch {}  // 아주 짧은 진동 (눌렸다는 느낌)
     const k = b.dataset.k;
     if (k === "ctrl" || k === "alt") { mods[k] = !mods[k]; paintMods(); return; }
     const tab = activeTab;
@@ -2724,28 +2780,41 @@ function keySeq(tab, k) {
     typeInto(tab, k.length === 1 ? applyMods(seq) : (mods.alt && !["up", "down", "left", "right"].includes(k) ? "\x1b" : "") + seq);
     if (k.length > 1 && (mods.ctrl || mods.alt)) { mods.ctrl = mods.alt = false; paintMods(); }
   };
+  const REPEAT = new Set(["left", "right", "up", "down", "pgup", "pgdn"]);
+  const stopRepeat = () => { if (t) { clearTimeout(t.hold); clearInterval(t.rep); } };
   row.addEventListener("touchstart", e => {
     e.preventDefault();
     const b = e.target.closest("button");
-    t = { x: e.touches[0].clientX, left: row.scrollLeft, b, moved: false };
+    t = { x: e.touches[0].clientX, left: row.scrollLeft, b, moved: false, repeated: false };
     if (b) b.classList.add("press");
+    if (b && REPEAT.has(b.dataset.k)) {  // 0.4초 넘게 누르고 있으면 계속 보냄
+      const tt = t;
+      tt.hold = setTimeout(() => {
+        if (tt.moved) return;
+        tt.repeated = true;
+        press(b);
+        tt.rep = setInterval(() => press(b), 70);
+      }, 400);
+    }
   }, { passive: false });
   row.addEventListener("touchmove", e => {
     if (!t) return;
     const dx = e.touches[0].clientX - t.x;
-    if (Math.abs(dx) > 8) {
+    if (Math.abs(dx) > 8 && !t.repeated) {
       t.moved = true;
+      stopRepeat();
       if (t.b) t.b.classList.remove("press");
     }
     if (t.moved) row.scrollLeft = t.left - dx;
   }, { passive: true });
   row.addEventListener("touchend", () => {
     if (!t) return;
+    stopRepeat();
     if (t.b) t.b.classList.remove("press");
-    if (t.b && !t.moved) press(t.b);
+    if (t.b && !t.moved && !t.repeated) press(t.b);
     t = null;
   });
-  row.addEventListener("touchcancel", () => { if (t && t.b) t.b.classList.remove("press"); t = null; });
+  row.addEventListener("touchcancel", () => { stopRepeat(); if (t && t.b) t.b.classList.remove("press"); t = null; });
   // 마우스(PC 에서 확인할 때)
   row.addEventListener("mousedown", e => e.preventDefault());
   row.addEventListener("click", e => { const b = e.target.closest("button"); if (b && e.detail !== -1) press(b); });

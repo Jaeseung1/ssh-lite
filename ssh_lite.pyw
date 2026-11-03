@@ -28,7 +28,7 @@ import webbrowser
 
 import paramiko
 
-APP_VERSION = "2026.11.01-5"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+APP_VERSION = "2026.11.03-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
 HOME = os.path.expanduser("~")
 DEFAULTS = {
     "host": "",   # 처음 한 번 화면에서 입력하면 기억함 (~/.ssh_lite.json)
@@ -921,6 +921,29 @@ class Backend:
         except Exception as e:
             detail = (text + ("\n[stderr]\n" + err if err.strip() else "")).strip()
             return {"error": friendly_error(e), "detail": "\n".join(detail.splitlines()[:40])}
+
+    def ping(self):
+        """잠들었다 깨거나 다른 앱에서 돌아왔을 때: 연결이 정말 살아 있는지 서버에 짧게 물어봄 (4초).
+        답이 없으면 끊고 False -> 화면이 바로 다시 연결함 (살아 있는 척하는 연결에 글자를 치며 기다리지 않게)"""
+        if not self._connected():
+            return False
+        try:
+            chan = self._client.get_transport().open_session(timeout=4)
+            chan.settimeout(4)
+            chan.exec_command("true")
+            end = time.time() + 4
+            while not chan.exit_status_ready():
+                if time.time() > end:
+                    raise socket.timeout()
+                time.sleep(0.05)
+            chan.close()
+            return True
+        except Exception:
+            try:
+                self._client.close()  # 터미널들이 끝나면서 화면에 '끊김'이 감
+            except Exception:
+                pass
+            return False
 
     def open_url(self, url):
         """터미널에서 Ctrl+클릭한 주소를 브라우저로 열기"""
