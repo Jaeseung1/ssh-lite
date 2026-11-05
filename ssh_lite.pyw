@@ -28,7 +28,7 @@ import webbrowser
 
 import paramiko
 
-APP_VERSION = "2026.11.03-2"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+APP_VERSION = "2026.11.05-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
 HOME = os.path.expanduser("~")
 DEFAULTS = {
     "host": "",   # 처음 한 번 화면에서 입력하면 기억함 (~/.ssh_lite.json)
@@ -1218,7 +1218,48 @@ def main():
         # 탐색기에서 떨어뜨린 파일의 실제 경로는 파이썬 쪽 drop 이벤트로만 받을 수 있음
         _window.dom.document.events.drop += DOMEventHandler(backend._on_drop, prevent_default=True)
 
+    # 창을 최대화하거나 크기를 바꿨는데 안쪽 화면(WebView2)이 예전 크기로 남아 오른쪽·아래가 비는 일이 있음.
+    # (WebView2 가 준비되는 중에 바뀐 크기를 놓치는 경우 등) 창 크기가 바뀌면 조금 뒤에 안쪽 화면 크기를 다시 맞춤
+    refit_timer = [None]
+
+    def refit_webview():
+        try:
+            import clr  # noqa: F401  (pywebview 가 이미 불러 둠)
+            from System import Action
+            from System.Drawing import Size
+            from System.Windows.Forms import DockStyle, FormWindowState
+            form = _window.native
+            wv = getattr(form, "webview", None)
+            if wv is None or form.WindowState == FormWindowState.Minimized:
+                return
+
+            def do():
+                cr = form.ClientRectangle
+                if cr.Width < 10 or cr.Height < 10:
+                    return
+                wv.Dock = getattr(DockStyle, "None")  # None 은 파이썬 예약어라 getattr
+                wv.Location = cr.Location
+                wv.Size = Size(cr.Width, max(1, cr.Height - 1))  # 크기가 실제로 바뀌어야 WebView2 가 다시 맞춤
+                wv.Size = Size(cr.Width, cr.Height)
+                wv.Dock = DockStyle.Fill
+                wv.Invalidate()
+            form.Invoke(Action(do))
+        except Exception:
+            pass
+
+    def schedule_refit(*_):
+        if sys.platform != "win32":
+            return
+        if refit_timer[0]:
+            refit_timer[0].cancel()
+        refit_timer[0] = threading.Timer(0.3, refit_webview)
+        refit_timer[0].daemon = True
+        refit_timer[0].start()
+
     _window.events.loaded += on_loaded
+    _window.events.loaded += schedule_refit
+    for ev in (_window.events.resized, _window.events.maximized, _window.events.restored):
+        ev += schedule_refit
     _window.events.closing += backend._on_closing
     webview.start(http_server=True)
 
