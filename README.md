@@ -14,7 +14,12 @@
 
 ## 실행
 
-[`release/`](release) 폴더에서 [`SSH-Lite.exe`](release/SSH-Lite.exe)(Windows) 또는 [`SSH-Lite.apk`](release/SSH-Lite.apk)(갤럭시·안드로이드)를 받으세요. 파일을 누른 뒤 오른쪽 위의 다운로드(↓) 버튼을 누르면 돼요.
+누르면 바로 받아져요:
+
+- **Windows**: [SSH-Lite.exe 받기](https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/SSH-Lite.exe)
+- **갤럭시·안드로이드**: [SSH-Lite.apk 받기](https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/SSH-Lite.apk)
+
+(파일은 [`release/`](release) 폴더에 있어요.)
 
 `SSH-Lite.exe`를 더블클릭하면 끝이에요. 설치할 것도 없어요.
 켜면 바로 **내 PC 명령 프롬프트** 탭이 뜨고, 왼쪽 접속 카드에 서버 주소·포트·사용자를 넣고 **연결**을 누르면 서버 탭이 열려요. 한 번 넣은 서버 정보는 기억해요.
