@@ -295,8 +295,27 @@
   .sb-stats .stat.hot .meter > i { background: var(--danger); }
   .sb-stats .stat-err { border: 0; background: transparent; color: var(--danger); padding: 2px 8px; margin-right: 6px; border-radius: 4px; cursor: pointer; font: inherit; }
   .sb-stats .stat-err:hover { background: rgba(255, 107, 107, .12); }
+  .sb-stats { cursor: pointer; }
+  .sb-stats .stat.xd .k { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 폰: 외장 디스크가 있다는 작은 표시 (자리를 차지하지 않게 디스크 칸 오른쪽 위에 띄움) */
+  .sb-stats .xmore { position: absolute; top: 5px; right: 1px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); pointer-events: none; }
+  .mobile .sb-stats .stat.xd { display: none; }
+  @media (max-width: 1000px) { .sb-stats .stat.xd .meter { display: none; } }
+  .sd { display: grid; gap: 2px; }
+  .sd-row { display: grid; grid-template-columns: 72px 1fr 64px 36px; align-items: center; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .sd-row:last-child { border-bottom: 0; }
+  .sd-k { color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sd-v { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sd-v.wide { grid-column: 2 / -1; }
+  .sd-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+  .sd-bar > i { display: block; height: 100%; background: var(--accent); }
+  .sd-bar.warm > i { background: var(--folder); }
+  .sd-bar.hot > i { background: var(--danger); }
+  .sd-pct { color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+  .sd-sub { grid-column: 2 / -1; color: var(--faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sd-note { margin: 8px 0 0; color: var(--faint); font-size: 12px; }
   /* 창이 좁거나 전송 중이면 덜 중요한 것(네트워크, 가동 시간)은 숨김 */
-  .statusbar.busy .sb-stats .opt, .statusbar.busy .sb-uptime { display: none; }
+  .statusbar.busy .sb-stats .opt, .statusbar.busy .sb-stats .xd, .statusbar.busy .sb-uptime { display: none; }
   @media (max-width: 1100px) { .sb-stats .opt { display: none; } }
   @media (max-width: 900px) { .sb-uptime { display: none; } }
   @media (max-width: 640px) { .sb-stats .meter { display: none; } }
@@ -2401,7 +2420,14 @@ function showStats(r) {
   if (r.disk_total) {
     const tip = `디스크 ${fmtUsed(r.disk_used, r.disk_total, 1000)} 사용 중 (${r.disk_pct}%, ${r.mount})`;
     tips.push(tip);
-    html.push(`<span class="stat${level(r.disk_pct)}" title="${esc(tip)}"><span class="k">디스크</span> <span class="v">${fmtUsed(r.disk_used, r.disk_total, 1000)}</span>${meter(r.disk_pct)}</span>`);
+    const hiddenX = MOBILE ? (r.xdisks || []).length : Math.max(0, (r.xdisks || []).length - 2);  // PC 상태 줄엔 2개까지
+    const more = hiddenX ? `<span class="xmore" title="외장 디스크 ${hiddenX}개 더: 눌러서 보기" aria-label="외장 디스크 ${hiddenX}개 더"></span>` : "";
+    html.push(`<span class="stat${level(r.disk_pct)}" title="${esc(tip)}"><span class="k">디스크</span> <span class="v">${fmtUsed(r.disk_used, r.disk_total, 1000)}</span>${more}${meter(r.disk_pct)}</span>`);
+  }
+  for (const x of (r.xdisks || []).slice(0, 2)) {  // 외장 디스크 (맥 /Volumes, 리눅스 /media·/mnt). 폰은 자리가 없어서 눌렀을 때 창에서
+    const tip = `외장 디스크 ${x.name}: ${fmtUsed(x.used, x.total, 1000)} 사용 중 (${x.pct}%, ${x.mount})`;
+    tips.push(tip);
+    html.push(`<span class="stat xd${level(x.pct)}" title="${esc(tip)}"><span class="k">${esc(x.name)}</span> <span class="v">${fmtUsed(x.used, x.total, 1000)}</span>${meter(x.pct)}</span>`);
   }
   if (r.net_in != null) {
     html.push(`<span class="stat opt" title="서버 네트워크: 받는 속도 / 보내는 속도"><span class="net-down">↓</span> <span class="v">${fmtSize(r.net_in)}/s</span> <span class="net-up">↑</span> <span class="v">${fmtSize(r.net_out)}/s</span></span>`);
@@ -2423,6 +2449,24 @@ function fmtUsed(used, total, base) {
   const num = v => v >= 100 ? Math.round(v) : v > 0 && v < 0.1 ? +v.toFixed(2) : +v.toFixed(1);
   return `${num(used)}/${num(total)} ${units[i]}`;
 }
+// 상태 줄 사용량을 누르면: 전부 자세히 (폰에서는 외장 디스크를 여기서 봄)
+function showStatsDetail() {
+  const r = lastStats;
+  if (!r || r.error) return;
+  const row = (k, v, pct, sub, pctText = true) => `<div class="sd-row"><span class="sd-k">${esc(k)}</span><span class="sd-v${pct == null ? " wide" : ""}">${esc(v)}</span>
+    ${pct != null ? `<span class="sd-bar${pct >= 90 ? " hot" : pct >= 75 ? " warm" : ""}"><i style="width:${pct}%"></i></span><span class="sd-pct">${pctText ? pct + "%" : ""}</span>` : ""}
+    ${sub ? `<span class="sd-sub">${esc(sub)}</span>` : ""}</div>`;
+  const rows = [];
+  if (r.cpu != null) rows.push(row("CPU", `${r.cpu}%`, r.cpu, "", false));
+  if (r.mem_total) rows.push(row("메모리", fmtUsed(r.mem_used, r.mem_total, 1024), Math.round(r.mem_used / r.mem_total * 100)));
+  if (r.disk_total) rows.push(row("디스크", fmtUsed(r.disk_used, r.disk_total, 1000), r.disk_pct, "내장 · " + r.mount));
+  for (const x of r.xdisks || []) rows.push(row(x.name, fmtUsed(x.used, x.total, 1000), x.pct, "외장 · " + x.mount));
+  if (r.net_in != null) rows.push(row("네트워크", `↓ ${fmtSize(r.net_in)}/s  ↑ ${fmtSize(r.net_out)}/s`));
+  if (r.uptime != null) rows.push(row("가동 시간", fmtUptime(r.uptime)));
+  if (!(r.xdisks || []).length) rows.push(`<p class="sd-note">외장 디스크를 연결하면 여기와 상태 줄에 같이 나와요.</p>`);
+  modal({ title: "서버 사용량", body: `<div class="sd">${rows.join("")}</div>`, ok: "닫기", cancel: null });
+}
+$("#sbStats").addEventListener("click", e => { if (!e.target.closest("#btnStatsErr")) showStatsDetail(); });
 function fmtUptime(sec) {
   const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
   return d ? `${d}일 ${h}시간` : h ? `${h}시간 ${m}분` : `${m}분`;

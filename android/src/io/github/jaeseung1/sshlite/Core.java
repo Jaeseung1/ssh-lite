@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.03-3";
+    public static final String APP_VERSION = "2026.11.11-1";
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
@@ -702,6 +702,23 @@ public class Core {
         return null;
     }
 
+    /** df -Pk 한 줄 -> {전체(long), 사용(long), %(int), 위치(String)}, 못 읽으면 null */
+    private static Object[] dfLine(String line) {
+        if (line == null) return null;
+        String[] f = line.trim().split("\\s+");
+        int at = -1;
+        for (int i = 0; i < f.length; i++) if (f[i].matches("\\d+%")) { at = i; break; }
+        if (at < 3) return null;
+        try {
+            StringBuilder mount = new StringBuilder();
+            for (int i = at + 1; i < f.length; i++) mount.append(mount.length() > 0 ? " " : "").append(f[i]);
+            return new Object[]{Long.parseLong(f[at - 3]) * 1024, Long.parseLong(f[at - 2]) * 1024,
+                    Integer.parseInt(f[at].replace("%", "")), mount.length() > 0 ? mount.toString() : "/"};
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     /** 사용량 명령 출력 읽기 (파이썬 parse_stats 와 같음). CPU·메모리·디스크를 하나도 못 읽으면 예외 */
     static JSONObject parseStats(String text, Map<String, Object> prev, double now, Map<String, Object> next) throws JSONException {
         List<String> lines = new ArrayList<>();
@@ -727,19 +744,24 @@ public class Core {
             }
         } catch (Exception ignored) {
         }
-        String diskLine = value(lines, "DISK ");
-        if (diskLine != null) {
-            String[] disk = diskLine.split("\\s+");
-            int at = -1;
-            for (int i = 0; i < disk.length; i++) if (disk[i].matches("\\d+%")) { at = i; break; }
-            if (at >= 3) {
-                StringBuilder mount = new StringBuilder();
-                for (int i = at + 1; i < disk.length; i++) mount.append(mount.length() > 0 ? " " : "").append(disk[i]);
-                r.put("disk_total", Long.parseLong(disk[at - 3]) * 1024).put("disk_used", Long.parseLong(disk[at - 2]) * 1024)
-                 .put("disk_pct", Integer.parseInt(disk[at].replace("%", ""))).put("mount", mount.length() > 0 ? mount.toString() : "/");
-                got = true;
-            }
+        Object[] d = dfLine(value(lines, "DISK "));
+        if (d != null) {
+            r.put("disk_total", d[0]).put("disk_used", d[1]).put("disk_pct", d[2]).put("mount", d[3]);
+            got = true;
         }
+        JSONArray xdisks = new JSONArray();  // 외장 디스크 (파이썬 parse_stats 와 같음)
+        for (String l : lines) {
+            if (!l.startsWith("XDISK ")) continue;
+            Object[] x = dfLine(l.substring(6));
+            if (x == null || (Long) x[0] < 512L * 1024 * 1024 || x[3].equals(r.optString("mount", null))) continue;  // 아주 작은 것은 뺌
+            boolean dup = false;
+            for (int i = 0; i < xdisks.length(); i++) if (xdisks.getJSONObject(i).getString("mount").equals(x[3])) dup = true;
+            if (dup) continue;
+            String mount = (String) x[3], trimmed = mount.replaceAll("/+$", "");
+            xdisks.put(new JSONObject().put("name", trimmed.substring(trimmed.lastIndexOf('/') + 1)).put("mount", mount)
+                    .put("total", x[0]).put("used", x[1]).put("pct", x[2]));
+        }
+        r.put("xdisks", xdisks);
         if (darwin) {
             try {
                 r.put("cpu", Math.max(0, Math.min(100, Math.round(Double.parseDouble(value(lines, "PSCPU ")) / Math.max(Integer.parseInt(value(lines, "NCPU ")), 1)))));

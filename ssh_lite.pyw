@@ -28,7 +28,7 @@ import webbrowser
 
 import paramiko
 
-APP_VERSION = "2026.11.05-2"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+APP_VERSION = "2026.11.11-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
 HOME = os.path.expanduser("~")
 DEFAULTS = {
     "host": "",   # 처음 한 번 화면에서 입력하면 기억함 (~/.ssh_lite.json)
@@ -240,6 +240,8 @@ def clipboard_set(text):
 
 
 # 서버 사용량: 맥은 ps / vm_stat / sysctl, Linux 는 /proc. 디스크는 둘 다 df (홈 폴더가 있는 디스크)
+# + 외장 디스크(XDISK): 맥 /Volumes/…, 리눅스 /media/… /mnt/… /run/media/… 에 붙은 것. -l = 이 컴퓨터 디스크만
+#   (네트워크 공유 폴더는 빼야 응답 없는 공유 때문에 df 가 멈추지 않음)
 STATS_CMD = r"""export LC_ALL=C; case "$(uname -s)" in
 Darwin) echo "OS darwin"; echo "NCPU $(/usr/sbin/sysctl -n hw.ncpu)"; echo "MEMSIZE $(/usr/sbin/sysctl -n hw.memsize)"; ps -A -o %cpu= | awk '{s+=$1} END {print "PSCPU", s+0}'; vm_stat
   echo "NOW $(date +%s)"; echo "BOOT $(/usr/sbin/sysctl -n kern.boottime)"
@@ -249,6 +251,7 @@ Darwin) echo "OS darwin"; echo "NCPU $(/usr/sbin/sysctl -n hw.ncpu)"; echo "MEMS
   echo "UPTIME $(cut -d' ' -f1 /proc/uptime)"
   awk 'NR > 2 {sub(/:/, " "); if ($1 != "lo") {i += $2; o += $10}} END {print "NET", i+0, o+0}' /proc/net/dev;;
 esac; echo "DISK $(df -Pk "$HOME" | tail -1)"
+df -Pkl 2>/dev/null | awk '$0 ~ / \/(Volumes|mnt)\/[^\/.][^\/]*$/ || $0 ~ / \/(media|run\/media)\/[^\/.][^\/]*(\/[^\/.][^\/]*)?$/ {print "XDISK " $0}' | head -8
 """
 
 
@@ -276,12 +279,31 @@ def parse_stats(text, prev=None, now=None):
             result["uptime"] = int(float(value("UPTIME ")))
     except (TypeError, ValueError, AttributeError):
         pass
-    disk = (value("DISK ") or "").split()
-    pct_at = next((i for i, f in enumerate(disk) if f.endswith("%") and f[:-1].isdigit()), None)
-    if pct_at is not None and pct_at >= 3:
-        result.update(disk_total=int(disk[pct_at - 3]) * 1024, disk_used=int(disk[pct_at - 2]) * 1024,
-                      disk_pct=int(disk[pct_at][:-1]), mount=" ".join(disk[pct_at + 1:]) or "/")
+    def df_line(line):  # df -Pk 한 줄 -> (전체, 사용, %, 위치)
+        f = (line or "").split()
+        at = next((i for i, x in enumerate(f) if x.endswith("%") and x[:-1].isdigit()), None)
+        if at is None or at < 3:
+            return None
+        return int(f[at - 3]) * 1024, int(f[at - 2]) * 1024, int(f[at][:-1]), " ".join(f[at + 1:]) or "/"
+    try:
+        d = df_line(value("DISK "))
+    except ValueError:
+        d = None
+    if d:
+        result.update(disk_total=d[0], disk_used=d[1], disk_pct=d[2], mount=d[3])
         got = True
+    xdisks = []
+    for l in lines:
+        if not l.startswith("XDISK "):
+            continue
+        try:
+            x = df_line(l[6:])
+        except ValueError:
+            continue
+        # 아주 작은 것(설치용 디스크 이미지 등)은 뺌
+        if x and x[0] >= 512 * 1024 * 1024 and x[3] != result.get("mount") and all(o["mount"] != x[3] for o in xdisks):
+            xdisks.append({"name": x[3].rstrip("/").rsplit("/", 1)[-1], "mount": x[3], "total": x[0], "used": x[1], "pct": x[2]})
+    result["xdisks"] = xdisks
     if "OS darwin" in lines:
         try:
             result["cpu"] = max(0, min(100, round(float(value("PSCPU ")) / max(int(value("NCPU ")), 1))))
