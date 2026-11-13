@@ -2478,16 +2478,18 @@ async function checkUpdate(manual = false) {
 async function startUpdate() {
   const r = state.update;
   if (!r || updateToast) return;
-  if (!r.can_install) { api().open_url(r.url); return; }
-  const how = isAndroid()
-    ? "새 버전을 폰의 <b>다운로드</b> 폴더에 받아요. 받은 파일을 누르면 설치돼요 (설정과 SSH 키는 그대로)."
+  // 폰은 앱이 APK 를 직접 받거나 설치하면 Play 프로텍트가 '유해한 앱'으로 막아서 브라우저로 받음
+  const how = !r.can_install
+    ? (isAndroid() ? "브라우저에서 새 버전 파일을 받아요. 다 받으면 <b>열기</b>를 눌러 설치해 주세요. 지울 필요 없고, 설정과 SSH 키는 그대로 남아요."
+                   : "브라우저에서 새 버전 파일을 받아요.")
     : "받은 뒤 앱이 저절로 다시 켜지고 서버에 바로 다시 연결돼요 (열려 있던 터미널 내용은 사라져요).";
   const ok = await modal({
     title: `새 버전 ${r.version}`,
     body: `${r.notes.length ? `<p>바뀐 점</p><ul class="notes">${r.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}<p>${how}</p><p class="ver">지금 버전: ${esc(r.current)}</p>`,
-    ok: "업데이트", cancel: "나중에",
+    ok: r.can_install ? "업데이트" : "받기", cancel: "나중에",
   });
   if (!ok) return;
+  if (!r.can_install) { api().open_url(r.url); return; }
   updateToast = progressToast("새 버전 받는 중…");
   const res = await api().apply_update();
   if (res && res.error) { updateToast.close(); updateToast = null; toast(res.error, { error: true }); }
@@ -2648,17 +2650,6 @@ window.app = {
         if (updateToast) { updateToast.set("새 버전으로 다시 켜는 중…"); }
         finishUpdate();
         break;
-      case "update_saved": {  // 폰: 다운로드 폴더에 받음 -> 그 파일을 눌러 설치
-        if (updateToast) { updateToast.close(); updateToast = null; }
-        const name = String(data.label || "").split("/").pop();
-        modal({
-          title: "새 버전을 받았어요",
-          body: `<p><b>다운로드 › SSH Lite</b> 폴더의 <b>${esc(name)}</b> 파일을 눌러 설치해 주세요.</p>
-                 <p>설치 화면에서 <b>업데이트</b>를 누르면 끝이에요. 지울 필요 없고, 설정과 SSH 키는 그대로 남아요.</p>`,
-          ok: "다운로드 폴더 열기", cancel: "닫기",
-        }).then(ok => { if (ok) api().show_in_explorer(""); });
-        break;
-      }
       case "update_error":
         if (updateToast) { updateToast.close(); updateToast = null; }
         toast(data.error, { error: true, timeout: 9000 });

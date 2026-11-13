@@ -58,12 +58,11 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.13-2";
-    // 자동 업데이트: 깃헙 release/version.json (PC 앱과 같은 파일). 파일은 이 저장소 주소에서만 받음
+    public static final String APP_VERSION = "2026.11.13-3";
+    // 업데이트 확인: 깃헙 release/version.json 만 읽음 (PC 앱과 같은 파일). 새 버전은 브라우저로 받음.
+    // (앱이 APK 를 직접 받거나 설치하면 Play 프로텍트가 '유해한 앱'으로 막아서 그렇게 하지 않음)
     static String updateUrl = System.getProperty("sshlite.updateUrl", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/version.json");
     static String updatePrefix = System.getProperty("sshlite.updatePrefix", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/");
-    private volatile JSONObject updateInfo;
-    private final AtomicBoolean updating = new AtomicBoolean();
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
@@ -193,7 +192,6 @@ public class Core {
             case "server_stats": return serverStats(a.optBoolean(0));
             case "ping": return ping();
             case "check_update": return checkUpdate();
-            case "apply_update": return applyUpdate();
             case "open_url": { String u = a.optString(0); if (u.matches("^https?://.*")) p.openUrl(u); return null; }
             case "open_remote": return openRemote(a.getString(0));
             case "upload": jobs.put(new Object[]{"upload", a.getJSONArray(0), a.getString(1), sessionNo});
@@ -1094,8 +1092,6 @@ public class Core {
         return new JSONObject().put("error", message);
     }
 
-    // ------------------------------------------------------------------ 자동 업데이트
-
     /** '2026.11.13-2' -> [2026, 11, 13, 2] 로 앞에서부터 비교 */
     static int compareVersions(String a, String b) {
         Matcher ma = Pattern.compile("\\d+").matcher(a), mb = Pattern.compile("\\d+").matcher(b);
@@ -1109,105 +1105,36 @@ public class Core {
         }
     }
 
-    private static java.net.HttpURLConnection open(String url, int timeoutMs) throws IOException {
-        java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-        c.setConnectTimeout(timeoutMs);
-        c.setReadTimeout(timeoutMs);
-        c.setRequestProperty("User-Agent", "SSH-Lite/" + APP_VERSION);
-        c.setUseCaches(false);
-        if (c.getResponseCode() != 200) throw new IOException("깃헙이 응답하지 않아요 (" + c.getResponseCode() + "). 잠시 뒤 다시 해 주세요.");
-        return c;
-    }
-
-    /** version.json 의 "apk" 정보 (잘못된 내용이면 예외) */
-    private JSONObject fetchUpdateInfo() throws Exception {
-        java.net.HttpURLConnection c = open(updateUrl + "?t=" + (System.currentTimeMillis() / 60000), 10000);
-        String body;
-        try (InputStream in = c.getInputStream()) {
-            ByteArrayOutputStream b = new ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0 && b.size() < 256 * 1024) b.write(buf, 0, n);
-            body = new String(b.toByteArray(), StandardCharsets.UTF_8);
-        } finally {
-            c.disconnect();
-        }
-        JSONObject data = new JSONObject(body), info = data.optJSONObject("apk");
-        if (info == null || !info.optString("url").startsWith(updatePrefix) || !info.optString("sha256").matches("[0-9a-f]{64}")
-                || info.optLong("size") <= 0 || info.optString("version").isEmpty()) throw new IOException("업데이트 정보가 이상해요.");
-        JSONArray notes = new JSONArray(), raw = data.optJSONArray("notes");
-        for (int i = 0; raw != null && i < raw.length() && i < 12; i++) if (raw.opt(i) instanceof String) notes.put(raw.getString(i));
-        return new JSONObject().put("version", info.getString("version")).put("url", info.getString("url"))
-                .put("sha256", info.getString("sha256")).put("size", info.getLong("size")).put("notes", notes);
-    }
-
-    private static String updateErrorText(Throwable e) {
-        if (e instanceof UnknownHostException || e instanceof ConnectException || e instanceof SocketTimeoutException
-                || e instanceof NoRouteToHostException || e instanceof javax.net.ssl.SSLException) return "인터넷에 연결돼 있는지 확인해 주세요.";
-        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-    }
-
+    /** 새 버전이 있는지만 확인. 받기는 화면이 브라우저로 주소를 엶 (url) */
     private JSONObject checkUpdate() throws JSONException {
         try {
-            JSONObject info = fetchUpdateInfo();
-            updateInfo = info;
-            return new JSONObject().put("available", compareVersions(info.getString("version"), APP_VERSION) > 0)
-                    .put("version", info.getString("version")).put("current", APP_VERSION).put("notes", info.getJSONArray("notes"))
-                    .put("can_install", true).put("url", info.getString("url"));
-        } catch (Exception e) {
-            return err("업데이트를 확인하지 못했어요. " + updateErrorText(e));
-        }
-    }
-
-    /** 새 APK 를 폰의 다운로드/SSH Lite 폴더에 받으면서 SHA-256 확인. 다르면 지움.
-     *  설치는 사용자가 그 파일을 눌러서 함 (앱이 직접 설치하려면 '다른 앱 설치' 권한이 필요한데,
-     *  그 권한이 있으면 Play 프로텍트가 '유해한 앱'으로 막음). 진행은 update_progress, 끝나면 update_saved */
-    private JSONObject applyUpdate() throws JSONException {
-        if (!updating.compareAndSet(false, true)) return new JSONObject().put("ok", true);
-        new Thread(() -> {
-            Download d = null;
-            try {
-                JSONObject info = updateInfo != null ? updateInfo : fetchUpdateInfo();
-                long size = info.getLong("size"), done = 0, last = 0;
-                MessageDigest md = MessageDigest.getInstance("SHA-256");
-                java.net.HttpURLConnection c = open(info.getString("url"), 30000);
-                d = p.newDownload("", "SSH-Lite-" + info.getString("version").replaceAll("[^0-9A-Za-z.-]", "") + ".apk");
-                try (InputStream in = c.getInputStream()) {
-                    OutputStream out = d.out();
-                    byte[] buf = new byte[64 * 1024];
-                    int n;
-                    while ((n = in.read(buf)) > 0) {
-                        out.write(buf, 0, n);
-                        md.update(buf, 0, n);
-                        done += n;
-                        if (done > size + 1024) throw new IOException("받은 파일이 예상보다 커요.");
-                        if (System.currentTimeMillis() - last > 200) {
-                            last = System.currentTimeMillis();
-                            p.emit("update_progress", new JSONObject().put("done", done).put("all", size));
-                        }
-                    }
-                } finally {
-                    c.disconnect();
-                }
-                StringBuilder hex = new StringBuilder();
-                for (byte x : md.digest()) hex.append(String.format("%02x", x));
-                if (done != size || !hex.toString().equals(info.getString("sha256")))
-                    throw new IOException("받은 파일이 올라간 파일과 달라요 (깃헙에 막 올라간 직후일 수 있어요). 잠시 뒤 다시 해 주세요.");
-                d.finish();
-                Download saved = d;
-                d = null;
-                p.emit("update_saved", new JSONObject().put("version", info.getString("version")).put("label", saved.label()));
-            } catch (Throwable e) {
-                if (d != null) d.abort();
-                try {
-                    p.emit("update_error", new JSONObject().put("error", "새 버전을 받지 못했어요. " + updateErrorText(e)));
-                } catch (JSONException ignored) {
-                }
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(updateUrl + "?t=" + (System.currentTimeMillis() / 60000)).openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            c.setUseCaches(false);
+            String body;
+            try (InputStream in = c.getInputStream()) {
+                ByteArrayOutputStream b = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0 && b.size() < 256 * 1024) b.write(buf, 0, n);
+                body = new String(b.toByteArray(), StandardCharsets.UTF_8);
             } finally {
-                updating.set(false);
+                c.disconnect();
             }
-        }, "update").start();
-        return new JSONObject().put("ok", true);
+            JSONObject data = new JSONObject(body), info = data.optJSONObject("apk");
+            if (info == null || !info.optString("url").startsWith(updatePrefix) || info.optString("version").isEmpty())
+                throw new IOException("업데이트 정보가 이상해요.");
+            JSONArray notes = new JSONArray(), raw = data.optJSONArray("notes");
+            for (int i = 0; raw != null && i < raw.length() && i < 12; i++) if (raw.opt(i) instanceof String) notes.put(raw.getString(i));
+            return new JSONObject().put("available", compareVersions(info.getString("version"), APP_VERSION) > 0)
+                    .put("version", info.getString("version")).put("current", APP_VERSION).put("notes", notes)
+                    .put("can_install", false).put("url", info.getString("url"));
+        } catch (Exception e) {
+            boolean net = e instanceof UnknownHostException || e instanceof ConnectException || e instanceof SocketTimeoutException
+                    || e instanceof NoRouteToHostException || e instanceof javax.net.ssl.SSLException;
+            return err("업데이트를 확인하지 못했어요. " + (net ? "인터넷에 연결돼 있는지 확인해 주세요." : String.valueOf(e.getMessage())));
+        }
     }
 
     static String friendly(Throwable e) {

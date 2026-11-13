@@ -470,7 +470,7 @@ public class MainActivity extends Activity implements Core.Platform {
         ContentValues v = new ContentValues();
         String rel = "Download/SSH Lite" + (relDir.isEmpty() ? "" : "/" + relDir);
         v.put("_display_name", name);
-        v.put("mime_type", name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/octet-stream");
+        v.put("mime_type", "application/octet-stream");
         v.put("relative_path", rel);
         v.put("is_pending", 1);
         // MediaStore.Downloads (Android 10 부터): 권한 없이 폰의 '다운로드' 폴더에 저장. 같은 이름이면 폰이 '이름 (1)'로 바꿈
