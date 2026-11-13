@@ -880,8 +880,10 @@ async function init() {
     $("#termEmpty").hidden = false;
     updateEmpty();
   }
-  setTimeout(() => checkUpdate(false), 5000);  // 켜고 조금 뒤 (연결을 먼저)
-  setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
+  if (!isAndroid()) {  // 자동 업데이트는 PC 만 (폰 앱에 넣으면 Play 프로텍트가 '유해한 앱'으로 막음)
+    setTimeout(() => checkUpdate(false), 5000);  // 켜고 조금 뒤 (연결을 먼저)
+    setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
+  }
   if (state.cfg.resume_once) api().save_ui({ resume_once: false });  // 업데이트하고 다시 켜진 경우: 한 번만 바로 연결
   if (state.cfg.auto_connect || state.cfg.resume_once) connect();
   else if (isAndroid()) openDrawer();
@@ -2693,7 +2695,7 @@ $("#btnMenu").onclick = e => {
   }
   if (state.update) items.unshift({ icon: "download", on: true, label: `새 버전 ${state.update.version}으로 업데이트`, run: startUpdate }, "-");
   items.push({ icon: "open", label: "다운로드 폴더 열기", run: () => api().show_in_explorer(state.cfg.download_dir) });
-  if (!state.update) items.push({ icon: "refresh", label: `업데이트 확인 (지금 ${state.cfg.version || ""})`, run: () => checkUpdate(true) });
+  if (!state.update && !isAndroid()) items.push({ icon: "refresh", label: `업데이트 확인 (지금 ${state.cfg.version || ""})`, run: () => checkUpdate(true) });
   items.push({ icon: "terminal", label: MOBILE ? "사용법" : "단축키 · 사용법", kbd: MOBILE ? "" : "F1", run: showHelp });
   if (state.connected) items.push("-", { icon: "power", label: "서버 연결 끊기", danger: true, run: disconnect });
   showMenu(0, 0, items, { anchor: e.currentTarget, right: true });

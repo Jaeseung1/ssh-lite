@@ -58,11 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.13-4";
-    // 업데이트 확인: 깃헙 release/version.json 만 읽음 (PC 앱과 같은 파일). 새 버전은 브라우저로 받음.
-    // (앱이 APK 를 직접 받거나 설치하면 Play 프로텍트가 '유해한 앱'으로 막아서 그렇게 하지 않음)
-    static String updateUrl = System.getProperty("sshlite.updateUrl", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/version.json");
-    static String updatePrefix = System.getProperty("sshlite.updatePrefix", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/");
+    public static final String APP_VERSION = "2026.11.13-5";
 
     /** 폰(안드로이드)마다 다른 기능: MainActivity 가 구현. PC 테스트에서는 가짜로 구현 */
     public interface Platform {
@@ -191,7 +187,6 @@ public class Core {
             case "clipboard_set": return p.clipboardSet(a.optString(0));
             case "server_stats": return serverStats(a.optBoolean(0));
             case "ping": return ping();
-            case "check_update": return checkUpdate();
             case "open_url": { String u = a.optString(0); if (u.matches("^https?://.*")) p.openUrl(u); return null; }
             case "open_remote": return openRemote(a.getString(0));
             case "upload": jobs.put(new Object[]{"upload", a.getJSONArray(0), a.getString(1), sessionNo});
@@ -1090,51 +1085,6 @@ public class Core {
 
     static JSONObject err(String message) throws JSONException {
         return new JSONObject().put("error", message);
-    }
-
-    /** '2026.11.13-2' -> [2026, 11, 13, 2] 로 앞에서부터 비교 */
-    static int compareVersions(String a, String b) {
-        Matcher ma = Pattern.compile("\\d+").matcher(a), mb = Pattern.compile("\\d+").matcher(b);
-        while (true) {
-            boolean ha = ma.find(), hb = mb.find();
-            if (!ha && !hb) return 0;
-            if (!ha) return -1;
-            if (!hb) return 1;
-            int c = Long.compare(Long.parseLong(ma.group()), Long.parseLong(mb.group()));
-            if (c != 0) return c;
-        }
-    }
-
-    /** 새 버전이 있는지만 확인. 받기는 화면이 브라우저로 주소를 엶 (url) */
-    private JSONObject checkUpdate() throws JSONException {
-        try {
-            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(updateUrl + "?t=" + (System.currentTimeMillis() / 60000)).openConnection();
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(10000);
-            c.setUseCaches(false);
-            String body;
-            try (InputStream in = c.getInputStream()) {
-                ByteArrayOutputStream b = new ByteArrayOutputStream();
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0 && b.size() < 256 * 1024) b.write(buf, 0, n);
-                body = new String(b.toByteArray(), StandardCharsets.UTF_8);
-            } finally {
-                c.disconnect();
-            }
-            JSONObject data = new JSONObject(body), info = data.optJSONObject("apk");
-            if (info == null || !info.optString("url").startsWith(updatePrefix) || info.optString("version").isEmpty())
-                throw new IOException("업데이트 정보가 이상해요.");
-            JSONArray notes = new JSONArray(), raw = data.optJSONArray("notes");
-            for (int i = 0; raw != null && i < raw.length() && i < 12; i++) if (raw.opt(i) instanceof String) notes.put(raw.getString(i));
-            return new JSONObject().put("available", compareVersions(info.getString("version"), APP_VERSION) > 0)
-                    .put("version", info.getString("version")).put("current", APP_VERSION).put("notes", notes)
-                    .put("can_install", false).put("url", info.getString("url"));
-        } catch (Exception e) {
-            boolean net = e instanceof UnknownHostException || e instanceof ConnectException || e instanceof SocketTimeoutException
-                    || e instanceof NoRouteToHostException || e instanceof javax.net.ssl.SSLException;
-            return err("업데이트를 확인하지 못했어요. " + (net ? "인터넷에 연결돼 있는지 확인해 주세요." : String.valueOf(e.getMessage())));
-        }
     }
 
     static String friendly(Throwable e) {
