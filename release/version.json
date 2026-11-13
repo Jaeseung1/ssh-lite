@@ -1,19 +1,18 @@
 {
  "exe": {
   "version": "2026.11.13-1",
-  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/049f5de3843ba09ec27ba575325cd11121d4431d/release/SSH-Lite.exe",
+  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/3a481c154b0d027e52ee26804c4c487a786cd41f/release/SSH-Lite.exe",
   "sha256": "a053ce946318132ec701d40a6e2432f30b1269ae82974ad49a4f93ddc0f43176",
   "size": 21104073
  },
  "apk": {
-  "version": "2026.11.13-4",
-  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/049f5de3843ba09ec27ba575325cd11121d4431d/release/SSH-Lite.apk",
-  "sha256": "30f0518d1976899b00a7aac4c64915e9402d291f19819b37b55bffb70d005523",
+  "version": "2026.11.13-5",
+  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/3a481c154b0d027e52ee26804c4c487a786cd41f/release/SSH-Lite.apk",
+  "sha256": "76157102d78a00ec231dd948b3d13cccae9e5dc802dbb01f51e7ff1c06ec7c47",
   "size": 2726176
  },
  "notes": [
-  "폰: 새 서명으로 다시 냄 (Play 프로텍트 경고 해결)",
-  "앱 안에서 업데이트 확인 (PC는 버튼 하나로 업데이트)",
+  "앱 안에서 업데이트 (PC)",
   "외장 디스크도 상태 줄에 표시, 사용량을 누르면 자세히"
  ]
 }
