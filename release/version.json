@@ -1,18 +1,19 @@
 {
  "exe": {
   "version": "2026.11.13-1",
-  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/c515b41f2288b4a0f2116734cf0e033d6b5df589/release/SSH-Lite.exe",
+  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/0b86854ee38bb5cc41e3f3939ba6a6339524a601/release/SSH-Lite.exe",
   "sha256": "a053ce946318132ec701d40a6e2432f30b1269ae82974ad49a4f93ddc0f43176",
   "size": 21104073
  },
  "apk": {
-  "version": "2026.11.13-1",
-  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/c515b41f2288b4a0f2116734cf0e033d6b5df589/release/SSH-Lite.apk",
-  "sha256": "3faaa924c37b35532ea6c17f453dc624c27f65f5e215c651d9a77a722b93ca04",
+  "version": "2026.11.13-2",
+  "url": "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/0b86854ee38bb5cc41e3f3939ba6a6339524a601/release/SSH-Lite.apk",
+  "sha256": "841e403465ae33c903f90a22c53c33ce41d640d58a602a2410a116203055822a",
   "size": 2730272
  },
  "notes": [
-  "앱 안에서 바로 업데이트 (다시 받을 필요 없음)",
+  "폰: Play 프로텍트 경고 해결 (새 버전은 다운로드 폴더에 받아서 눌러 설치)",
+  "앱 안에서 업데이트 확인",
   "외장 디스크도 상태 줄에 표시, 사용량을 누르면 자세히"
  ]
 }
