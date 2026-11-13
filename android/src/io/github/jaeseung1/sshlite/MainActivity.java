@@ -3,6 +3,7 @@ package io.github.jaeseung1.sshlite;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DownloadManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -10,6 +11,8 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInstaller;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
@@ -35,6 +38,7 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -314,6 +318,83 @@ public class MainActivity extends Activity implements Core.Platform {
 
     @Override
     public File dataDir() { return getFilesDir(); }
+
+    // ------------------------------------------------------------------ 자동 업데이트 설치
+    private static final String ACTION_UPDATE = "io.github.jaeseung1.sshlite.UPDATE_STATUS";
+
+    /** 받은 APK 를 PackageInstaller 로 설치. 폰이 '업데이트할까요?' 를 물어봄 (앱 서명이 같아야 설치됨) */
+    @Override
+    public void installApk(File apk) throws Exception {
+        // Android 8+: 이 앱에서 설치하는 것을 한 번 허용해야 함 (API 23 기준으로 빌드해서 리플렉션)
+        boolean allowed = true;
+        try {
+            allowed = (Boolean) PackageManager.class.getMethod("canRequestPackageInstalls").invoke(getPackageManager());
+        } catch (Exception ignored) {
+        }
+        if (!allowed) {
+            ui.post(() -> {
+                try {
+                    startActivity(new Intent("android.settings.MANAGE_UNKNOWN_APP_SOURCES", Uri.parse("package:" + getPackageName())));
+                } catch (Exception ignored) {
+                }
+            });
+            throw new Core.Notice("처음 한 번만: 열린 설정 화면에서 'SSH Lite 에서 설치 허용'을 켜고 돌아와서 업데이트를 다시 눌러 주세요.");
+        }
+        PackageInstaller installer = getPackageManager().getPackageInstaller();
+        PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+        params.setAppPackageName(getPackageName());
+        int id = installer.createSession(params);
+        PackageInstaller.Session session = installer.openSession(id);
+        try {
+            try (OutputStream out = session.openWrite("SSH-Lite.apk", 0, apk.length()); InputStream in = new FileInputStream(apk)) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                session.fsync(out);
+            }
+            Intent back = new Intent(this, MainActivity.class).setAction(ACTION_UPDATE).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            // FLAG_MUTABLE(0x02000000): 설치기가 결과(EXTRA_STATUS)를 넣어 돌려줘야 해서 Android 12+ 에서 필요
+            PendingIntent pi = PendingIntent.getActivity(this, 7, back, PendingIntent.FLAG_UPDATE_CURRENT | 0x02000000);
+            session.commit(pi.getIntentSender());
+        } catch (Exception e) {
+            session.abandon();
+            throw e;
+        } finally {
+            session.close();
+            apk.delete();  // 설치기에 이미 넘겼음
+        }
+    }
+
+    /** 설치기가 돌려준 결과: 확인이 필요하면 확인 화면을 띄움, 실패하면 화면에 알림 */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent == null || !ACTION_UPDATE.equals(intent.getAction())) return;
+        int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -999);
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+            Intent confirm = intent.getParcelableExtra(Intent.EXTRA_INTENT);
+            if (confirm != null) {
+                try {
+                    startActivity(confirm);
+                } catch (Exception e) {
+                    emitUpdateError("설치 화면을 열지 못했어요: " + e.getMessage());
+                }
+            }
+        } else if (status == PackageInstaller.STATUS_FAILURE_ABORTED) {
+            emitUpdateError("업데이트를 취소했어요.");
+        } else if (status != PackageInstaller.STATUS_SUCCESS) {
+            String m = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
+            emitUpdateError(status == PackageInstaller.STATUS_FAILURE_CONFLICT || status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE
+                    ? "설치하지 못했어요. 지금 앱과 서명이 다른 파일이에요." : "설치하지 못했어요." + (m != null ? " (" + m + ")" : ""));
+        }
+    }
+
+    private void emitUpdateError(String message) {
+        try {
+            emit("update_error", new JSONObject().put("error", message));
+        } catch (Exception ignored) {
+        }
+    }
 
     @Override
     public String readAsset(String name) throws IOException {

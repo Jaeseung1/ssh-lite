@@ -28,7 +28,11 @@ import webbrowser
 
 import paramiko
 
-APP_VERSION = "2026.11.11-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+APP_VERSION = "2026.11.13-1"  # 창 제목과 ⋯ 메뉴에 보임 (어느 exe 를 쓰는지 확인용)
+# 자동 업데이트: 깃헙의 release/version.json 에 최신 버전·파일 주소·SHA-256 이 있음.
+# 파일은 이 저장소 주소에서만 받음 (version.json 이 다른 곳을 가리켜도 무시)
+UPDATE_URL = "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/version.json"
+UPDATE_PREFIX = "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/"
 HOME = os.path.expanduser("~")
 DEFAULTS = {
     "host": "",   # 처음 한 번 화면에서 입력하면 기억함 (~/.ssh_lite.json)
@@ -381,6 +385,61 @@ def fit_window_to_screen(hwnd):
                                0x0004 | 0x0010))  # 순서·활성 상태는 그대로
 
 
+def version_tuple(v):
+    """'2026.11.13-2' -> (2026, 11, 13, 2). 숫자만 순서대로 비교"""
+    return tuple(int(x) for x in re.findall(r"\d+", str(v)))
+
+
+def fetch_update_info(kind):
+    """version.json 에서 kind('exe' 또는 'apk') 정보. 잘못된 내용이면 ValueError"""
+    import urllib.request
+    url = f"{UPDATE_URL}?t={int(time.time() // 60)}"  # 깃헙 캐시를 1분 단위로 피함
+    req = urllib.request.Request(url, headers={"User-Agent": "SSH-Lite/" + APP_VERSION, "Cache-Control": "no-cache"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        data = json.loads(r.read(256 * 1024).decode("utf-8"))
+    info = data.get(kind) or {}
+    if not (isinstance(info.get("version"), str) and isinstance(info.get("url"), str) and info["url"].startswith(UPDATE_PREFIX)
+            and re.fullmatch(r"[0-9a-f]{64}", str(info.get("sha256", ""))) and int(info.get("size", 0)) > 0):
+        raise ValueError("업데이트 정보가 이상해요.")
+    notes = [str(n) for n in data.get("notes", []) if isinstance(n, str)][:12]
+    return {"version": info["version"], "url": info["url"], "sha256": info["sha256"], "size": int(info["size"]), "notes": notes}
+
+
+def update_error_text(e):
+    import urllib.error
+    if isinstance(e, urllib.error.HTTPError):
+        return f"깃헙이 응답하지 않아요 ({e.code}). 잠시 뒤 다시 해 주세요."
+    if isinstance(e, (urllib.error.URLError, socket.error, TimeoutError)):
+        return "인터넷에 연결돼 있는지 확인해 주세요."
+    if isinstance(e, PermissionError):
+        return "exe 가 있는 폴더에 쓸 수 없어요. 바탕화면이나 다운로드 폴더로 옮겨서 실행해 주세요."
+    return str(e) or e.__class__.__name__
+
+
+def self_exe():
+    """지금 실행 중인 exe 경로 (PyInstaller 로 묶은 Windows 앱일 때만, 아니면 None)"""
+    if getattr(sys, "frozen", False) and sys.platform == "win32":
+        return os.path.abspath(sys.executable)
+    return None
+
+
+def clean_old_exe():
+    """지난 업데이트에서 이름을 바꿔 둔 예전 exe 지우기 (예전 창이 아직 닫히는 중이면 잠깐 기다렸다 다시)"""
+    exe = self_exe()
+    if not exe:
+        return
+    for _ in range(20):
+        for leftover in (exe + ".old", exe + ".new"):
+            try:
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+            except OSError:
+                pass
+        if not os.path.exists(exe + ".old"):
+            return
+        time.sleep(1)
+
+
 def clean_old_edits(days=3):
     """지난번에 편집하던 임시 파일 중 오래된 것 정리"""
     limit = time.time() - days * 86400
@@ -601,6 +660,7 @@ class Backend:
         threading.Thread(target=self._transfer_worker, daemon=True).start()
         threading.Thread(target=self._edit_watcher, daemon=True).start()
         threading.Thread(target=clean_old_edits, daemon=True).start()
+        threading.Thread(target=clean_old_exe, daemon=True).start()
 
     # ------------------------------------------------ 설정
 
@@ -608,7 +668,7 @@ class Backend:
         return {**self._cfg, "has_key": os.path.exists(KEY_PATH), "version": APP_VERSION}
 
     def save_ui(self, values):
-        for k in ("show_hidden", "sidebar_width", "auto_connect", "tab_titles", "follow_cwd", "font_size", "server_stats"):
+        for k in ("show_hidden", "sidebar_width", "auto_connect", "tab_titles", "follow_cwd", "font_size", "server_stats", "resume_once"):
             if k in values:
                 self._cfg[k] = values[k]
         save_config(self._cfg)
@@ -971,6 +1031,88 @@ class Backend:
         """터미널에서 Ctrl+클릭한 주소를 브라우저로 열기"""
         if re.match(r"^https?://", str(url)):
             webbrowser.open(url)
+
+    # ------------------------------------------------ 자동 업데이트
+    # 새 exe 를 '이름.new' 로 받아 SHA-256 확인 -> 지금 exe 를 '이름.old' 로 바꾸고 (Windows 는 실행 중인 exe 도
+    # 이름은 바꿀 수 있음) 새 exe 를 원래 이름으로 -> 새로 켜고 이 창은 닫음. 다음에 켤 때 .old 를 지움
+
+    def check_update(self):
+        try:
+            info = fetch_update_info("exe")
+        except Exception as e:
+            return {"error": f"업데이트를 확인하지 못했어요. {update_error_text(e)}"}
+        self._update = info
+        return {"available": version_tuple(info["version"]) > version_tuple(APP_VERSION), "version": info["version"],
+                "current": APP_VERSION, "notes": info["notes"], "can_install": self_exe() is not None, "url": info["url"]}
+
+    def apply_update(self):
+        if getattr(self, "_updating", False):
+            return {"ok": True}
+        if not self_exe():
+            return {"error": "직접 실행한 파이썬 파일은 자동 업데이트가 안 돼요."}
+        self._updating = True
+        threading.Thread(target=self._download_update, daemon=True).start()
+        return {"ok": True}
+
+    def _download_update(self):
+        import urllib.request
+        exe = self_exe()
+        new = exe + ".new"
+        try:
+            info = getattr(self, "_update", None) or fetch_update_info("exe")
+            h, done, last = hashlib.sha256(), 0, 0.0
+            req = urllib.request.Request(info["url"], headers={"User-Agent": "SSH-Lite/" + APP_VERSION})
+            with urllib.request.urlopen(req, timeout=30) as r, open(new, "wb") as f:
+                while True:
+                    chunk = r.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    h.update(chunk)
+                    done += len(chunk)
+                    if done > info["size"] + 1024:
+                        raise ValueError("받은 파일이 예상보다 커요.")
+                    if time.time() - last > 0.2:
+                        last = time.time()
+                        self._emit("update_progress", {"done": done, "all": info["size"]})
+            if done != info["size"] or h.hexdigest() != info["sha256"]:
+                raise ValueError("받은 파일이 올라간 파일과 달라요 (깃헙에 막 올라간 직후일 수 있어요). 잠시 뒤 다시 해 주세요.")
+            old = exe + ".old"
+            if os.path.exists(old):
+                os.remove(old)
+            os.rename(exe, old)
+            try:
+                os.rename(new, exe)
+            except OSError:
+                os.rename(old, exe)  # 되돌림
+                raise
+            self._emit("update_ready", {"version": info["version"]})
+        except Exception as e:
+            try:
+                os.remove(new)
+            except OSError:
+                pass
+            self._emit("update_error", {"error": "새 버전을 받지 못했어요. " + update_error_text(e)})
+        finally:
+            self._updating = False
+
+    def restart_app(self, force=False):
+        """업데이트한 exe 를 새로 켜고 이 창은 닫음. 끝나지 않은 일이 있으면 먼저 물어봄"""
+        if not force:
+            reasons = self._pending()
+            if reasons:
+                return {"busy": reasons}
+        exe = self_exe()
+        if exe and self._connected():  # 새로 켜지면 한 번만 바로 다시 연결
+            self._cfg["resume_once"] = True
+            save_config(self._cfg)
+        if exe:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("_PYI", "_MEIPASS"))}
+            env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"  # 새 exe 가 이 exe 의 풀어 둔 파일을 쓰지 않고 자기 것을 풀게
+            subprocess.Popen([exe], env=env, close_fds=True, cwd=os.path.dirname(exe),
+                             creationflags=0x00000008 | 0x00000200)  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        self.force_close()
+        return {"ok": True}
 
     # ------------------------------------------------ 서버 파일을 내 PC 프로그램으로 바로 편집
     # 임시 폴더에 받아서 기본 프로그램으로 열고, 1초마다 확인해서 저장되면 서버에 다시 올림
