@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="io.github.jaeseung1.sshlite"
-    android:versionCode="25"
-    android:versionName="2026.11.13-3">
+    package="io.github.jaeseung1.sshlite.app"
+    android:versionCode="26"
+    android:versionName="2026.11.13-4">
 
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -12,14 +12,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:name=".App"
+        android:name="io.github.jaeseung1.sshlite.App"
         android:label="SSH Lite"
         android:icon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:allowBackup="false"
         android:usesCleartextTraffic="false">
         <activity
-            android:name=".MainActivity"
+            android:name="io.github.jaeseung1.sshlite.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
@@ -30,6 +30,6 @@
             </intent-filter>
         </activity>
         <!-- android:maxRecents 는 자리만: 빌드할 때 patch_manifest.py 가 foregroundServiceType="specialUse" 로 바꿈 -->
-        <service android:name=".KeepAliveService" android:exported="false" android:maxRecents="1073741824" />
+        <service android:name="io.github.jaeseung1.sshlite.KeepAliveService" android:exported="false" android:maxRecents="1073741824" />
     </application>
 </manifest>

@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.13-3";
+    public static final String APP_VERSION = "2026.11.13-4";
     // 업데이트 확인: 깃헙 release/version.json 만 읽음 (PC 앱과 같은 파일). 새 버전은 브라우저로 받음.
     // (앱이 APK 를 직접 받거나 설치하면 Play 프로텍트가 '유해한 앱'으로 막아서 그렇게 하지 않음)
     static String updateUrl = System.getProperty("sshlite.updateUrl", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/version.json");

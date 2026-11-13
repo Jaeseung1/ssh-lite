@@ -42,7 +42,7 @@ python3 patch_manifest.py "$OUT/unsigned.apk"  # aapt 가 모르는 최신 속�
 zipalign -f 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 if [ ! -f release.keystore ]; then
   keytool -genkeypair -keystore release.keystore -alias sshlite -keyalg RSA -keysize 3072 -validity 36500 \
-    -dname "CN=SSH Lite" -storepass sshlite -keypass sshlite
+    -dname "CN=SSH Lite, O=Jaeseung1" -storepass sshlite -keypass sshlite
 fi
 apksigner sign --v2-signing-enabled true --v3-signing-enabled true --v4-signing-enabled false --ks release.keystore --ks-pass pass:sshlite --key-pass pass:sshlite --out SSH-Lite.apk "$OUT/aligned.apk"
 apksigner verify SSH-Lite.apk
