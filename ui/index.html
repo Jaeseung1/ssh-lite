@@ -2480,7 +2480,7 @@ async function startUpdate() {
   if (!r || updateToast) return;
   if (!r.can_install) { api().open_url(r.url); return; }
   const how = isAndroid()
-    ? "받은 뒤 폰의 설치 화면이 뜨면 <b>업데이트</b>를 눌러 주세요. 설정과 SSH 키는 그대로 남아요."
+    ? "새 버전을 폰의 <b>다운로드</b> 폴더에 받아요. 받은 파일을 누르면 설치돼요 (설정과 SSH 키는 그대로)."
     : "받은 뒤 앱이 저절로 다시 켜지고 서버에 바로 다시 연결돼요 (열려 있던 터미널 내용은 사라져요).";
   const ok = await modal({
     title: `새 버전 ${r.version}`,
@@ -2648,10 +2648,17 @@ window.app = {
         if (updateToast) { updateToast.set("새 버전으로 다시 켜는 중…"); }
         finishUpdate();
         break;
-      case "update_installing":  // 폰: 설치 화면으로 넘김
+      case "update_saved": {  // 폰: 다운로드 폴더에 받음 -> 그 파일을 눌러 설치
         if (updateToast) { updateToast.close(); updateToast = null; }
-        toast("설치 화면이 뜨면 '업데이트'를 눌러 주세요.", { timeout: 8000 });
+        const name = String(data.label || "").split("/").pop();
+        modal({
+          title: "새 버전을 받았어요",
+          body: `<p><b>다운로드 › SSH Lite</b> 폴더의 <b>${esc(name)}</b> 파일을 눌러 설치해 주세요.</p>
+                 <p>설치 화면에서 <b>업데이트</b>를 누르면 끝이에요. 지울 필요 없고, 설정과 SSH 키는 그대로 남아요.</p>`,
+          ok: "다운로드 폴더 열기", cancel: "닫기",
+        }).then(ok => { if (ok) api().show_in_explorer(""); });
         break;
+      }
       case "update_error":
         if (updateToast) { updateToast.close(); updateToast = null; }
         toast(data.error, { error: true, timeout: 9000 });

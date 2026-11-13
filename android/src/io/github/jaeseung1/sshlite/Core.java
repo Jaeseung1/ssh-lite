@@ -58,7 +58,7 @@ import java.util.regex.Pattern;
  * 안드로이드 클래스는 쓰지 않음 (PC 에서도 테스트할 수 있게). 폰에만 있는 기능은 Platform 으로 받음.
  */
 public class Core {
-    public static final String APP_VERSION = "2026.11.13-1";
+    public static final String APP_VERSION = "2026.11.13-2";
     // 자동 업데이트: 깃헙 release/version.json (PC 앱과 같은 파일). 파일은 이 저장소 주소에서만 받음
     static String updateUrl = System.getProperty("sshlite.updateUrl", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/main/release/version.json");
     static String updatePrefix = System.getProperty("sshlite.updatePrefix", "https://raw.githubusercontent.com/Jaeseung1/ssh-lite/");
@@ -81,7 +81,6 @@ public class Core {
         Download newDownload(String relDir, String name) throws IOException;  // 폰의 다운로드/SSH Lite 아래
         void showDownloads(String first);
         void openFile(Download d) throws IOException;
-        void installApk(File apk) throws Exception;     // 받은 새 버전 설치 (폰의 '업데이트할까요?' 화면을 띄움)
     }
 
     /** 폰에 받는 파일 하나 */
@@ -90,11 +89,6 @@ public class Core {
         String label();                              // 알림에 보여줄 위치
         void finish();
         void abort();
-    }
-
-    /** 사용자에게 그대로 보여줄 안내 (예: '이 앱에서 설치 허용'을 켜 주세요) */
-    public static class Notice extends Exception {
-        public Notice(String message) { super(message); }
     }
 
     static class Cancelled extends Exception {
@@ -1165,17 +1159,21 @@ public class Core {
         }
     }
 
-    /** 새 APK 를 앱 폴더에 받아 SHA-256 확인 -> 폰의 설치 화면. 진행은 update_progress, 실패는 update_error */
+    /** 새 APK 를 폰의 다운로드/SSH Lite 폴더에 받으면서 SHA-256 확인. 다르면 지움.
+     *  설치는 사용자가 그 파일을 눌러서 함 (앱이 직접 설치하려면 '다른 앱 설치' 권한이 필요한데,
+     *  그 권한이 있으면 Play 프로텍트가 '유해한 앱'으로 막음). 진행은 update_progress, 끝나면 update_saved */
     private JSONObject applyUpdate() throws JSONException {
         if (!updating.compareAndSet(false, true)) return new JSONObject().put("ok", true);
         new Thread(() -> {
-            File apk = new File(p.dataDir(), "update.apk");
+            Download d = null;
             try {
                 JSONObject info = updateInfo != null ? updateInfo : fetchUpdateInfo();
                 long size = info.getLong("size"), done = 0, last = 0;
                 MessageDigest md = MessageDigest.getInstance("SHA-256");
                 java.net.HttpURLConnection c = open(info.getString("url"), 30000);
-                try (InputStream in = c.getInputStream(); OutputStream out = new FileOutputStream(apk)) {
+                d = p.newDownload("", "SSH-Lite-" + info.getString("version").replaceAll("[^0-9A-Za-z.-]", "") + ".apk");
+                try (InputStream in = c.getInputStream()) {
+                    OutputStream out = d.out();
                     byte[] buf = new byte[64 * 1024];
                     int n;
                     while ((n = in.read(buf)) > 0) {
@@ -1192,15 +1190,17 @@ public class Core {
                     c.disconnect();
                 }
                 StringBuilder hex = new StringBuilder();
-                for (byte b : md.digest()) hex.append(String.format("%02x", b));
+                for (byte x : md.digest()) hex.append(String.format("%02x", x));
                 if (done != size || !hex.toString().equals(info.getString("sha256")))
                     throw new IOException("받은 파일이 올라간 파일과 달라요 (깃헙에 막 올라간 직후일 수 있어요). 잠시 뒤 다시 해 주세요.");
-                p.emit("update_installing", new JSONObject().put("version", info.getString("version")));
-                p.installApk(apk);
+                d.finish();
+                Download saved = d;
+                d = null;
+                p.emit("update_saved", new JSONObject().put("version", info.getString("version")).put("label", saved.label()));
             } catch (Throwable e) {
-                apk.delete();
+                if (d != null) d.abort();
                 try {
-                    p.emit("update_error", new JSONObject().put("error", e instanceof Notice ? e.getMessage() : "새 버전을 받지 못했어요. " + updateErrorText(e)));
+                    p.emit("update_error", new JSONObject().put("error", "새 버전을 받지 못했어요. " + updateErrorText(e)));
                 } catch (JSONException ignored) {
                 }
             } finally {
